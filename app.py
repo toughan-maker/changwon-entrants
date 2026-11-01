@@ -56,8 +56,8 @@ def main_value(cell) -> str:
 
 
 def normalize_record(text: str) -> str:
-    """200m 기록 11”29 / 11"29 -> 11.29"""
-    return re.sub(r"[”\"″]", ".", text).strip()
+    """200m 기록 11”29 / 11″29 / 11.29 -> 11"29 (일반 큰따옴표로 통일)"""
+    return re.sub(r"[”″.]", '"', text).strip()
 
 
 def find_entry_table(heading):
@@ -191,7 +191,13 @@ if submitted:
     out_df = df.copy()
     # 기어배수: 화살표(↑↓▲▼ 등)를 없애고 숫자만 저장 (화면 표에는 원래 값 그대로 표시)
     out_df["기어배수"] = out_df["기어배수"].astype(str).str.extract(r"(\d+(?:\.\d+)?)", expand=False).fillna("")
-    txt_bytes = out_df.to_csv(index=False, header=False).encode("utf-8")
+    # 200미터기록의 큰따옴표(12"23) 때문에 CSV 모듈이 값을 "12""23"으로 감싸지 않도록
+    # 따옴표 처리 없이 쉼표로만 이어서 저장 (값 안의 쉼표는 제거)
+    lines = [
+        ",".join(str(v).replace(",", "") for v in row)
+        for row in out_df.itertuples(index=False)
+    ]
+    txt_bytes = ("\n".join(lines) + "\n").encode("utf-8")
     st.download_button(
         "📥 결과 파일(.txt) 다운로드",
         data=txt_bytes,
