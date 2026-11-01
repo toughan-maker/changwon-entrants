@@ -146,10 +146,16 @@ def parse(html: str, date_arg: str, track: str = TRACK):
     return pd.DataFrame(rows, columns=COLUMNS), label
 
 
-@st.cache_data(ttl=600, show_spinner=False)  # 같은 조건은 10분간 다시 요청하지 않음
+@st.cache_data(ttl=600, show_spinner=False)  # 같은 페이지는 10분간 다시 요청하지 않음
+def fetch_cached(url: str) -> str:
+    return fetch_html(url)
+
+
 def load(date_str: str, fixed: bool):
+    # 캐시에는 원본 HTML만 저장하고, 변환(파싱)은 매번 새로 실행합니다.
+    # (변환 결과까지 캐시하면 코드를 고친 뒤에도 예전 형식의 결과가 10분간 나올 수 있음)
     url = (BASE_FIX if fixed else BASE_UNFIX).format(date=date_str)
-    html = fetch_html(url)
+    html = fetch_cached(url)
     df, label = parse(html, date_str)
     return df, label, url
 
