@@ -186,13 +186,14 @@ if submitted:
 
     st.success(f"{label} · {kind}출주표 · 창원 {df['경주번호'].nunique()}개 경주, 선수 {len(df)}명")
 
-    # CSV 다운로드 버튼 (엑셀 한글 깨짐 방지를 위해 BOM 포함)
-    csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+    # 결과 파일: 쉼표 구분 텍스트(.txt), 첫 줄(열 제목) 없이 데이터만 저장
+    # BOM을 넣으면 첫 데이터 앞에 보이지 않는 문자가 붙으므로 BOM 없는 UTF-8 사용
+    txt_bytes = df.to_csv(index=False, header=False).encode("utf-8")
     st.download_button(
-        "📥 CSV 다운로드",
-        data=csv_bytes,
-        file_name=f"changwon_{'fix' if fixed else 'unfix'}_{date_str}.csv",
-        mime="text/csv",
+        "📥 결과 파일(.txt) 다운로드",
+        data=txt_bytes,
+        file_name=f"changwon_{'fix' if fixed else 'unfix'}_{date_str}.txt",
+        mime="text/plain",
         type="primary",
     )
 
