@@ -71,10 +71,11 @@ def find_entry_table(heading):
 
 
 def parse_race_date(soup, date_arg: str) -> str:
+    """경주일을 YY-MM-DD 형식으로 반환. 예: 26-11-01"""
     m = re.search(r"\((\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\)", soup.get_text(" "))
     if m:
-        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-    return f"{date_arg[:4]}-{date_arg[4:6]}-{date_arg[6:8]}"
+        return f"{m.group(1)[2:]}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return f"{date_arg[2:4]}-{date_arg[4:6]}-{date_arg[6:8]}"
 
 
 def parse_round(soup):
