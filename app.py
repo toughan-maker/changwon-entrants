@@ -188,7 +188,10 @@ if submitted:
 
     # 결과 파일: 쉼표 구분 텍스트(.txt), 첫 줄(열 제목) 없이 데이터만 저장
     # BOM을 넣으면 첫 데이터 앞에 보이지 않는 문자가 붙으므로 BOM 없는 UTF-8 사용
-    txt_bytes = df.to_csv(index=False, header=False).encode("utf-8")
+    out_df = df.copy()
+    # 기어배수: 화살표(↑↓▲▼ 등)를 없애고 숫자만 저장 (화면 표에는 원래 값 그대로 표시)
+    out_df["기어배수"] = out_df["기어배수"].astype(str).str.extract(r"(\d+(?:\.\d+)?)", expand=False).fillna("")
+    txt_bytes = out_df.to_csv(index=False, header=False).encode("utf-8")
     st.download_button(
         "📥 결과 파일(.txt) 다운로드",
         data=txt_bytes,
