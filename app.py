@@ -25,6 +25,9 @@ COLUMNS = [
     "창원점수", "종합점수", "창원", "상금순위",
 ]
 
+# 추가 파일 열: 경주번호, 이름, 기어배수, 0, 0, 0, 잔여점수
+EXTRA_COLUMNS = ["경주번호", "선수명", "기어배수", "값1", "값2", "값3", "잔여점수"]
+
 # 예: "창원 01 경주 [우수] 출발 12:55"
 RACE_TITLE_RE = re.compile(
     r"(창원|부산|광명)\s*(\d+)\s*경주\s*\[([^\]]*)\]\s*출발\s*(\d{1,2}:\d{2})"
@@ -70,6 +73,31 @@ def find_entry_table(heading):
     return None
 
 
+def find_penalty_table(heading):
+    """경주 제목 다음의 '규칙 위반 점수(잔여점수)' 표 (다음 경주 제목 전까지)"""
+    for el in heading.find_all_next(["h3", "table"]):
+        if el.name == "h3" and el is not heading and RACE_TITLE_RE.search(el.get_text(" ", strip=True)):
+            return None
+        if el.name == "table" and "잔여" in el.get_text():
+            return el
+    return None
+
+
+def parse_residual_points(table):
+    """{선수번호: 잔여점수} — 각 선수 행의 마지막 칸이 잔여점수"""
+    result = {}
+    if table is None:
+        return result
+    for tr in table.find_all("tr"):
+        tds = tr.find_all("td")
+        if not tds or not tds[0].find("a", href=re.compile(r"/racer/")):
+            continue
+        num_m = re.match(r"\s*(\d+)", tds[0].get_text(" ", strip=True))
+        if num_m:
+            result[num_m.group(1)] = main_value(tds[-1])
+    return result
+
+
 def parse_race_date(soup, date_arg: str) -> str:
     """경주일을 YY-MM-DD 형식으로 반환. 예: 26-11-01"""
     m = re.search(r"\((\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일\)", soup.get_text(" "))
@@ -95,7 +123,7 @@ def parse(html: str, date_arg: str, track: str = TRACK):
     race_date = parse_race_date(soup, date_arg)
     round_info = parse_round(soup)
     if round_info is None:
-        return pd.DataFrame(columns=COLUMNS), None
+        return pd.DataFrame(columns=COLUMNS + ["잔여점수"]), None
     year, round_no, day_no = round_info
     prefix = TRACK_PREFIX[track]
     rows = []
@@ -110,6 +138,7 @@ def parse(html: str, date_arg: str, track: str = TRACK):
         table = find_entry_table(heading)
         if table is None:
             continue
+        residual = parse_residual_points(find_penalty_table(heading))
 
         for tr in table.find_all("tr"):
             tds = tr.find_all("td")
@@ -122,12 +151,13 @@ def parse(html: str, date_arg: str, track: str = TRACK):
             first_text = first.get_text(" ", strip=True)
             num_m = re.match(r"\s*(\d+)", first_text)
             ka = KISU_AGE_RE.search(first_text)
+            player_no = num_m.group(1) if num_m else ""
 
             rows.append({
                 "경주번호": race_id,
                 "경주일": race_date,
                 "경주시간": race_time,
-                "선수번호": num_m.group(1) if num_m else "",
+                "선수번호": player_no,
                 "선수명": first.find("a").get_text(strip=True),
                 "기수": ka.group(1) if ka else "",
                 "나이": ka.group(2) if ka else "",
@@ -141,10 +171,18 @@ def parse(html: str, date_arg: str, track: str = TRACK):
                 "종합점수": main_value(tds[15]),
                 "창원": track,  # 경주장 이름 (고정값 '창원')
                 "상금순위": main_value(tds[16]).split("/")[0].strip(),
+                "잔여점수": residual.get(player_no, ""),  # 추가 파일용
             })
 
     label = f"{year}년 {round_no.lstrip('0') or '0'}회 {int(day_no)}일차"
-    return pd.DataFrame(rows, columns=COLUMNS), label
+    return pd.DataFrame(rows, columns=COLUMNS + ["잔여점수"]), label
+
+
+def to_txt_bytes(frame: pd.DataFrame) -> bytes:
+    """첫 줄(열 제목) 없이 쉼표로만 이어서 저장 (BOM 없는 UTF-8).
+    200미터기록의 큰따옴표(12"23)가 "12""23"으로 바뀌지 않도록 CSV 따옴표 처리는 하지 않음."""
+    lines = [",".join(str(v).replace(",", "") for v in row) for row in frame.itertuples(index=False)]
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 @st.cache_data(ttl=600, show_spinner=False)  # 같은 페이지는 10분간 다시 요청하지 않음
@@ -194,35 +232,55 @@ if submitted:
 
     st.success(f"{label} · {kind}출주표 · 창원 {df['경주번호'].nunique()}개 경주, 선수 {len(df)}명")
 
-    # 결과 파일: 쉼표 구분 텍스트(.txt), 첫 줄(열 제목) 없이 데이터만 저장
-    # BOM을 넣으면 첫 데이터 앞에 보이지 않는 문자가 붙으므로 BOM 없는 UTF-8 사용
-    out_df = df.copy()
-    # 기어배수: 화살표(↑↓▲▼ 등)를 없애고 숫자만 저장 (화면 표에는 원래 값 그대로 표시)
-    out_df["기어배수"] = out_df["기어배수"].astype(str).str.extract(r"(\d+(?:\.\d+)?)", expand=False).fillna("")
-    # 200미터기록의 큰따옴표(12"23) 때문에 CSV 모듈이 값을 "12""23"으로 감싸지 않도록
-    # 따옴표 처리 없이 쉼표로만 이어서 저장 (값 안의 쉼표는 제거)
-    lines = [
-        ",".join(str(v).replace(",", "") for v in row)
-        for row in out_df.itertuples(index=False)
-    ]
-    txt_bytes = ("\n".join(lines) + "\n").encode("utf-8")
-    st.download_button(
-        "📥 결과 파일(.txt) 다운로드",
-        data=txt_bytes,
-        file_name=f"changwon_{'fix' if fixed else 'unfix'}_{date_str}.txt",
-        mime="text/plain",
-        type="primary",
-    )
+    gear_clean = df["기어배수"].astype(str).str.extract(r"(\d+(?:\.\d+)?)", expand=False).fillna("")
 
-    tab_race, tab_all = st.tabs(["경주별 보기", "전체 표"])
+    # 메인 결과 파일 (기어배수 화살표 제거)
+    main_df = df[COLUMNS].copy()
+    main_df["기어배수"] = gear_clean
+
+    # 추가 파일: 경주번호, 이름, 기어배수, 0, 0, 0, 잔여점수
+    extra_df = pd.DataFrame({
+        # 끝의 경주번호 2자리를 뺀 회차·일차까지만 표시 (c2026400301 -> c20264003)
+        "경주번호": df["경주번호"].str[:-2],
+        "선수명": df["선수명"],
+        "기어배수": gear_clean,
+        "값1": 0, "값2": 0, "값3": 0,
+        "잔여점수": df["잔여점수"],
+    })[EXTRA_COLUMNS]
+
+    if (df["잔여점수"] == "").any():
+        st.warning("일부 선수의 잔여점수를 찾지 못해 빈칸으로 저장됩니다.")
+
+    base_name = f"changwon_{'fix' if fixed else 'unfix'}_{date_str}"
+    c1, c2 = st.columns(2)
+    with c1:
+        st.download_button(
+            "📥 결과 파일(.txt) 다운로드",
+            data=to_txt_bytes(main_df),
+            file_name=f"{base_name}.txt",
+            mime="text/plain", type="primary", width="stretch",
+        )
+    with c2:
+        st.download_button(
+            "📥 추가 파일(.txt) 다운로드",
+            data=to_txt_bytes(extra_df),
+            file_name=f"{base_name}_extra.txt",
+            mime="text/plain", type="primary", width="stretch",
+        )
+
+    view_df = df[COLUMNS]
+    tab_race, tab_all, tab_extra = st.tabs(["경주별 보기", "전체 표", "추가 파일 미리보기"])
     with tab_race:
-        for (no, grade, t), g in df.groupby(["경주번호", "등급", "경주시간"], sort=False):
+        for (no, grade, t), g in view_df.groupby(["경주번호", "등급", "경주시간"], sort=False):
             st.subheader(f"{no} · [{grade}] · 출발 {t}")
             st.dataframe(
                 g.drop(columns=["경주번호", "경주일", "경주시간", "등급"]),
                 hide_index=True, width="stretch",
             )
     with tab_all:
-        st.dataframe(df, hide_index=True, width="stretch")
+        st.dataframe(view_df, hide_index=True, width="stretch")
+    with tab_extra:
+        st.caption("경주번호, 이름, 기어배수, 0, 0, 0, 잔여점수 순서로 저장됩니다.")
+        st.dataframe(extra_df, hide_index=True, width="stretch")
 
     st.markdown(f"<small>원본: <a href='{url}' target='_blank'>{url}</a></small>", unsafe_allow_html=True)
