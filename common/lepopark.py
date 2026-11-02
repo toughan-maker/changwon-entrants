@@ -108,13 +108,15 @@ def main_value(cell) -> str:
 
 # ───────────────────────── 파일 변환 ─────────────────────────
 def to_txt_bytes(frame: pd.DataFrame, sep: str = ",", header: bool = False,
-                 encoding: str = "utf-8") -> bytes:
+                 encoding: str = "utf-8", trailing_sep: bool = False) -> bytes:
     """DataFrame → 구분자 txt (BOM 없음).
     - 값 안에 들어 있는 구분자 문자는 지웁니다(열이 밀리지 않도록).
-    - CSV 따옴표 처리는 하지 않습니다. (200m 기록 12"23 이 "12""23" 으로 바뀌지 않도록)"""
+    - CSV 따옴표 처리는 하지 않습니다. (200m 기록 12"23 이 "12""23" 으로 바뀌지 않도록)
+    - trailing_sep=True 면 줄마다 끝에 구분자를 하나 더 붙입니다. (예: ...^참고사항^)"""
+    end = sep if trailing_sep else ""
     lines = []
     if header:
-        lines.append(sep.join(str(c) for c in frame.columns))
-    lines += [sep.join(str(v).replace(sep, "") for v in row)
+        lines.append(sep.join(str(c) for c in frame.columns) + end)
+    lines += [sep.join(str(v).replace(sep, "") for v in row) + end
               for row in frame.itertuples(index=False)]
     return ("\n".join(lines) + "\n").encode(encoding, errors="replace")
