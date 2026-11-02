@@ -1,6 +1,6 @@
 """
 창원경륜 출전선수상담결과 → ^ 구분 txt
-출력: c년도회차^경주일(YYYY-MM-DD)^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^훈련내용^참고사항
+출력: c년도회차^경주일(YYYY-MM-DD)^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^훈련내용^참고사항^  (줄 끝에 ^ 하나 더)
 """
 import re
 from datetime import date
@@ -133,7 +133,8 @@ if res:
 
     st.download_button(
         "📥 txt 파일 다운로드",
-        data=to_txt_bytes(df, sep=SEP, header=res["with_header"], encoding=res["encoding"]),
+        data=to_txt_bytes(df, sep=SEP, header=res["with_header"], encoding=res["encoding"],
+                          trailing_sep=True),
         file_name=f"counsel_{res['code']}.txt",
         mime="text/plain", type="primary", width="stretch",
     )
@@ -143,7 +144,7 @@ if res:
         st.dataframe(df, hide_index=True, width="stretch",
                      column_config={"훈련내용": st.column_config.TextColumn(width="large")})
     with tab_txt:
-        preview = to_txt_bytes(df.head(10), sep=SEP, header=res["with_header"]).decode("utf-8")
+        preview = to_txt_bytes(df.head(10), sep=SEP, header=res["with_header"], trailing_sep=True).decode("utf-8")
         st.code(preview, language=None)
 
     url = counsel_url(res["seq"])
