@@ -1,6 +1,6 @@
 """
 창원경륜 출전선수상담결과 → ^ 구분 txt
-출력: c년도회차^경주일^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^훈련내용^참고사항
+출력: c년도회차^경주일(YYYY-MM-DD)^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^훈련내용^참고사항
 """
 import re
 from datetime import date
@@ -102,10 +102,12 @@ if submitted:
             st.info(f"참고: 페이지 기준은 {p_year}년 {p_times}회차입니다. "
                     f"입력값({year}년 {times}회차)으로 표기합니다.")
 
+        # 경주일 형식: YYYY-MM-DD (예: 2026-10-29)
         if date_in:
-            rdate = date_in.strftime("%Y%m%d")
+            rdate = date_in.strftime("%Y-%m-%d")
         else:
-            rdate = first_race_date(year, seq)
+            d = first_race_date(year, seq)          # API 값은 YYYYMMDD
+            rdate = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else ""
             if not rdate:
                 st.warning("경주일을 자동으로 찾지 못했습니다. 경주일자를 직접 입력해 주세요.")
 
