@@ -18,6 +18,7 @@ st.set_page_config(page_title="창원경륜 도구", page_icon="🚴", layout="w
 PAGES = [
     st.Page("apps/entrant.py", title="출주표", icon="📋", url_path="entrant", default=True),
     st.Page("apps/counsel.py", title="출전선수상담결과", icon="🗣️", url_path="counsel"),
+    st.Page("apps/result.py", title="경주결과", icon="🏁", url_path="result"),
 ]
 
 st.navigation(PAGES).run()

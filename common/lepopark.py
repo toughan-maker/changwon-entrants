@@ -19,6 +19,7 @@ BASE = "https://www.lepopark.or.kr"
 ENTRANT_FIX_URL = BASE + "/race/entrant/{date}"           # 확정출주표
 ENTRANT_UNFIX_URL = BASE + "/race/entrant-unfix/{date}"   # 미확정출주표
 COUNSEL_URL = BASE + "/racer/counsel"                     # 출전선수상담결과 (?seqtimes=)
+RESULT_URL = BASE + "/race/result/{date}"                 # 경주결과
 
 RCTIMES_COUNSEL_API = BASE + "/api/race/{year}/rctimes_counsel"   # 년도별 회차·seqtimes
 RCDATE_API = BASE + "/api/race/{year}/rcdate"                     # 년도별 경주일
