@@ -73,12 +73,11 @@ def record_to_sec(t: str):
     return float(f"{m.group(1)}.{m.group(2)}") if m else None
 
 
-def format_record(sec, decimals: int = 2, style: str = "quote") -> str:
-    """11.7615 → '11"76' (style='quote') 또는 '11.76' (style='decimal')"""
+def format_record(sec) -> str:
+    """11.7615 → '1176' (소수 둘째 자리 반올림 후 구분자 없이)"""
     if sec is None:
         return ""
-    s = f"{sec:.{decimals}f}"
-    return s.replace(".", '"') if style == "quote" else s
+    return f"{sec:.2f}".replace(".", "")
 
 
 def sort_ticket(ticket: str) -> str:
@@ -230,7 +229,7 @@ def make_raceno(track: str, year: str, round_no: str, day: str, race_no: int) ->
 
 
 def parse_result(html: str, year: str, round_no: str, race_date: str = "",
-                 track: str = "창원", decimals: int = 2, style: str = "quote"):
+                 track: str = "창원"):
     """race_date: 'YYYY-MM-DD' (비우면 페이지에서 읽음)"""
     soup = BeautifulSoup(html, "html.parser")
     info = page_header(soup)
@@ -266,9 +265,9 @@ def parse_result(html: str, year: str, round_no: str, race_date: str = "",
             players_out.append({
                 "raceno": raceno, **{k: p[k] for k in
                                      ["선수번호", "선수명", "순위", "착차", "주행시간", "승부수"]},
-                "200미터기록": format_record(rec200 + diff, decimals, style)
+                "200미터기록": format_record(rec200 + diff)
                 if (rec200 is not None and diff is not None) else "",
-                "최종주회기록": format_record(last_lap + diff, decimals, style)
+                "최종주회기록": format_record(last_lap + diff)
                 if (last_lap is not None and diff is not None) else "",
                 "실격": p["실격"], "경고": p["경고"], "주의": p["주의"],
                 "기권구분": p["기권구분"],
