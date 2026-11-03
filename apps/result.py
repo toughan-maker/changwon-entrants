@@ -76,12 +76,14 @@ if submitted:
             "📥 선수별 경주결과(.txt)", data=to_txt_bytes(players_df, trailing_sep=True),
             file_name=f"changwon_result_player_{date_str}.txt",
             mime="text/plain", type="primary", width="stretch",
+            on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
         )
     with d2:
         st.download_button(
             "📥 경주정보(.txt)", data=to_txt_bytes(races_df, trailing_sep=True),
             file_name=f"changwon_result_race_{date_str}.txt",
             mime="text/plain", type="primary", width="stretch",
+            on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
         )
 
     tab_p, tab_r = st.tabs(["선수별 경주결과", "경주정보"])

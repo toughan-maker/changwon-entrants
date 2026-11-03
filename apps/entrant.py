@@ -222,6 +222,7 @@ if submitted:
             data=to_txt_bytes(main_df),
             file_name=f"{base_name}.txt",
             mime="text/plain", type="primary", width="stretch",
+            on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
         )
     with c2:
         st.download_button(
@@ -229,6 +230,7 @@ if submitted:
             data=to_txt_bytes(extra_df),
             file_name=f"{base_name}_extra.txt",
             mime="text/plain", type="primary", width="stretch",
+            on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
         )
 
     view_df = df[COLUMNS]
