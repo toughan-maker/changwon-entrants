@@ -23,15 +23,6 @@ with st.form("result_query"):
         year = st.text_input("년도", value=str(date.today().year), max_chars=4)
     with c3:
         round_no = st.text_input("회차", value="", placeholder="예: 33")
-    with st.expander("출력 옵션"):
-        o1, o2, o3 = st.columns(3)
-        with o1:
-            style = st.radio("200m·최종주회 표기", ['11"76', "11.76"], horizontal=True)
-        with o2:
-            decimals = st.selectbox("소수 자리수", [2, 3, 4], index=0,
-                                    help="2등 이하는 1등 기록 + 주행시간 차이로 계산합니다.")
-        with o3:
-            header = st.checkbox("첫 줄에 필드명 포함", value=False)
     submitted = st.form_submit_button("조회", type="primary", width="stretch")
 
 if submitted:
@@ -54,7 +45,7 @@ if submitted:
 
     players_df, races_df, info = parse_result(
         html, year=year, round_no=round_no, race_date=race_day.strftime("%Y-%m-%d"),
-        track=TRACK, decimals=decimals, style="quote" if style.startswith('11"') else "decimal",
+        track=TRACK,
     )
 
     if races_df.empty:
@@ -82,13 +73,13 @@ if submitted:
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
-            "📥 선수별 경주결과(.txt)", data=to_txt_bytes(players_df, header=header),
+            "📥 선수별 경주결과(.txt)", data=to_txt_bytes(players_df, trailing_sep=True),
             file_name=f"changwon_result_player_{date_str}.txt",
             mime="text/plain", type="primary", width="stretch",
         )
     with d2:
         st.download_button(
-            "📥 경주정보(.txt)", data=to_txt_bytes(races_df, header=header),
+            "📥 경주정보(.txt)", data=to_txt_bytes(races_df, trailing_sep=True),
             file_name=f"changwon_result_race_{date_str}.txt",
             mime="text/plain", type="primary", width="stretch",
         )

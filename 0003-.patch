@@ -1,0 +1,32 @@
+From 41d9f5a57520972d2a59141bc6a0eb8b033d865c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 3 Nov 2026 15:04:42 +0900
+Subject: [PATCH 3/3] =?UTF-8?q?=EA=B2=BD=EC=A3=BC=EA=B2=B0=EA=B3=BC:=20?=
+ =?UTF-8?q?=EA=B2=BD=EC=A3=BC=EC=A0=95=EB=B3=B4=20=ED=8C=8C=EC=9D=BC=20?=
+ =?UTF-8?q?=EB=81=9D=EC=97=90=20=EC=89=BC=ED=91=9C=20=EC=B6=94=EA=B0=80?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HuS7Qgub5jyNV7XdVw7izj
+---
+ apps/result.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/apps/result.py b/apps/result.py
+index 1c743e9..9fb5243 100644
+--- a/apps/result.py
++++ b/apps/result.py
+@@ -79,7 +79,7 @@ if submitted:
+         )
+     with d2:
+         st.download_button(
+-            "📥 경주정보(.txt)", data=to_txt_bytes(races_df),
++            "📥 경주정보(.txt)", data=to_txt_bytes(races_df, trailing_sep=True),
+             file_name=f"changwon_result_race_{date_str}.txt",
+             mime="text/plain", type="primary", width="stretch",
+         )
+-- 
+2.43.0
+
