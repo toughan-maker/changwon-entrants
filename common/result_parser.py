@@ -18,7 +18,7 @@ TRACK_PREFIX = {"창원": "c", "부산": "b", "광명": "g"}
 PLAYER_COLUMNS = [
     "raceno", "선수번호", "선수명", "순위", "착차", "주행시간", "승부수",
     "200미터기록", "최종주회기록", "실격", "경고", "주의", "기권구분",
-    "경기장", "경주일자", "경주등급",
+    "경기장", "경주일자", "경주등급", "인기순위",
 ]
 
 RACE_COLUMNS = [
@@ -220,6 +220,73 @@ def parse_odds(table) -> dict:
     return {}
 
 
+# ───────────────────────── 인기순위 (최종배당률) ─────────────────────────
+def race_seq_map(soup) -> dict:
+    """결과 페이지 링크 <a href="#158328">창원06</a> → {('창원', 6): '158328'}"""
+    out = {}
+    for a in soup.find_all("a", href=re.compile(r"^#\d+$")):
+        m = re.fullmatch(r"(창원|부산|광명|창|부|광)\s*(\d{1,2})", a.get_text(strip=True))
+        if not m:
+            continue
+        track = {"창": "창원", "부": "부산", "광": "광명"}.get(m.group(1), m.group(1))
+        out.setdefault((track, int(m.group(2))), a["href"][1:])
+    return out
+
+
+def parse_exacta(html: str) -> tuple[dict, str]:
+    """최종배당률 페이지의 쌍승식 표 → ({1착번호: {2착번호: 배당}}, 경주제목)"""
+    soup = BeautifulSoup(html, "html.parser")
+    title = ""
+    h3 = soup.find("h3")
+    if h3:
+        title = h3.get_text(" ", strip=True)
+    table = None
+    for t in soup.find_all("table"):
+        cap = _key(t.caption.get_text()) if t.caption else ""
+        head = _key(t.thead.get_text()) if t.thead else ""
+        if ("쌍승식" in cap or head.startswith("쌍승식")) and "쌍복" not in cap + head:
+            table = t
+            break
+    if table is None:
+        return {}, title
+    cols = []
+    for tr in table.find_all("tr"):
+        cells = [_text(c) for c in tr.find_all(["th", "td"])]
+        if cells and cells[0] == "배번":
+            cols = [int(c) for c in cells[1:] if c.isdigit()]
+            break
+    matrix = {}
+    for tr in (table.tbody or table).find_all("tr"):
+        cells = [_text(c) for c in tr.find_all("td")]
+        if not cells or not cells[0].isdigit():
+            continue
+        first = int(cells[0])
+        row = {}
+        for j, v in enumerate(cells[1:]):
+            if j < len(cols) and cols[j] != first:
+                try:
+                    row[cols[j]] = float(v.replace(",", ""))
+                except ValueError:
+                    pass  # 빈칸(결장 등)
+        matrix[first] = row
+    return matrix, title
+
+
+def popularity_ranks(matrix: dict) -> dict:
+    """쌍승 최저배당 조합의 1착·2착 번호가 인기 1·2위,
+    나머지는 1위 선수가 1착인 쌍승배당이 낮은 순서로 3위부터.
+    배당이 같으면 배번이 낮은 선수가 앞. 배당이 없는 선수는 순위 없음."""
+    pairs = [(odd, a, b) for a, row in matrix.items() for b, odd in row.items()]
+    if not pairs:
+        return {}
+    _, first, second = min(pairs)
+    ranks = {first: 1, second: 2}
+    rest = sorted((odd, b) for b, odd in matrix.get(first, {}).items() if b not in ranks)
+    for i, (_, b) in enumerate(rest, start=3):
+        ranks[b] = i
+    return ranks
+
+
 # ───────────────────────── 메인 ─────────────────────────
 def make_raceno(track: str, year: str, round_no: str, day: str, race_no: int) -> str:
     rnd = str(round_no).strip().upper()
@@ -236,6 +303,8 @@ def parse_result(html: str, year: str, round_no: str, race_date: str = "",
     race_date = race_date or info["date"]
     day = info["day"] or "01"
 
+    seq_map = race_seq_map(soup)
+    info["seqrace"] = {}  # {raceno: seqrace} → 최종배당률 페이지 조회용
     players_out, races_out = [], []
     for race in split_races(soup):
         if race["track"] != track:
@@ -248,6 +317,8 @@ def parse_result(html: str, year: str, round_no: str, race_date: str = "",
         odds = parse_odds(t["odds"]) if "odds" in t else {}
 
         raceno = make_raceno(track, year, round_no, day, race["no"])
+        if race["key"] in seq_map:
+            info["seqrace"][raceno] = seq_map[race["key"]]
         grade = rinfo.get("등급", "")
         rec200 = record_to_sec(rinfo.get("200m", ""))
         last_lap = record_to_sec(rinfo.get("최종주회", ""))
@@ -272,6 +343,7 @@ def parse_result(html: str, year: str, round_no: str, race_date: str = "",
                 "실격": p["실격"], "경고": p["경고"], "주의": p["주의"],
                 "기권구분": p["기권구분"],
                 "경기장": track, "경주일자": race_date, "경주등급": grade,
+                "인기순위": "",
             })
 
         # 배당 정리

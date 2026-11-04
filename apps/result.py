@@ -2,13 +2,15 @@
 창원경륜 경주결과 → txt (DB 업로드용, 쉼표 구분)
 - 선수별 경주결과 파일 / 경주정보(배당) 파일 2개 생성
 """
+import re
 from datetime import date
 
+import pandas as pd
 import requests
 import streamlit as st
 
-from common.lepopark import RESULT_URL, fetch_html, to_txt_bytes
-from common.result_parser import parse_result
+from common.lepopark import FINALRATE_URL, RESULT_URL, fetch_html, to_txt_bytes
+from common.result_parser import parse_exacta, parse_result, popularity_ranks
 
 TRACK = "창원"
 
@@ -47,6 +49,32 @@ if submitted:
         html, year=year, round_no=round_no, race_date=race_day.strftime("%Y-%m-%d"),
         track=TRACK,
     )
+
+    # 인기순위: 경주별 최종배당률 페이지의 쌍승식 표로 계산
+    missing_pop = []
+    with st.spinner("최종배당률로 인기순위를 계산하는 중..."):
+        for raceno in races_df["raceno"]:
+            seq = info["seqrace"].get(raceno)
+            ranks = {}
+            if seq:
+                try:
+                    matrix, title = parse_exacta(fetch_html(FINALRATE_URL.format(date=date_str, seq=seq)))
+                    # 다른 경주 페이지가 열린 경우를 막기 위해 경주번호 확인 (예: '창원06 [우수] 10:35')
+                    m = re.search(r"(창원)\s*(\d{1,2})", title)
+                    if m and int(m.group(2)) == int(raceno[-2:]):
+                        ranks = popularity_ranks(matrix)
+                except requests.RequestException:
+                    pass
+            if not ranks:
+                missing_pop.append(raceno)
+                continue
+            sel = players_df["raceno"] == raceno
+            players_df.loc[sel, "인기순위"] = (
+                players_df.loc[sel, "선수번호"].astype(int).map(ranks)
+                .map(lambda x: "" if pd.isna(x) else str(int(x)))
+            )
+    if missing_pop:
+        st.warning(f"인기순위를 계산하지 못한 경주가 있어 빈칸으로 저장됩니다: {', '.join(missing_pop)}")
 
     if races_df.empty:
         st.warning(f"{race_day:%Y-%m-%d} 경주결과에서 창원 경주를 찾지 못했습니다. "
