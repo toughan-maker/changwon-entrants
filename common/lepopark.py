@@ -1,5 +1,5 @@
 """
-창원레포츠파크(lepopark.or.kr) 공통 모듈
+창원레포츠파크(lepopark.or.kr) 공통 모듈 + 세 사이트 공용 요청 함수(fetch_html)
 - 페이지/API 요청 (10분 캐시)
 - 년도·회차·시퀀스넘버·경주일 조회
 - 셀 텍스트 정리, txt 파일 변환
@@ -25,7 +25,7 @@ FINALRATE_URL = BASE + "/race/finalrate/{date}?seqrace={seq}"  # 경주별 최�
 RCTIMES_COUNSEL_API = BASE + "/api/race/{year}/rctimes_counsel"   # 년도별 회차·seqtimes
 RCDATE_API = BASE + "/api/race/{year}/rcdate"                     # 년도별 경주일
 
-TRACK_PREFIX = {"창원": "c", "부산": "b", "광명": "g"}
+from common.tracks import TRACK_PREFIX  # noqa: E402,F401  (예전 import 경로 유지)
 
 HEADERS = {
     "User-Agent": (
@@ -39,7 +39,10 @@ HEADERS = {
 
 # ───────────────────────── 요청 ─────────────────────────
 def _get(url: str, params: dict | None = None) -> requests.Response:
-    resp = requests.get(url, params=params, headers=HEADERS, timeout=30)
+    # Referer 는 요청하는 사이트 주소로 (창원·광명·부산 사이트 공용)
+    origin = re.match(r"https?://[^/]+", url)
+    headers = {**HEADERS, "Referer": (origin.group(0) if origin else BASE) + "/"}
+    resp = requests.get(url, params=params, headers=headers, timeout=30)
     resp.raise_for_status()
     return resp
 

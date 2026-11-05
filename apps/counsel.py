@@ -1,135 +1,104 @@
 """
-창원경륜 출전선수상담결과 → ^ 구분 txt
-출력: c년도회차^경주일(YYYY-MM-DD)^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^전회출전^훈련내용^참고사항^  (줄 끝에 ^ 하나 더)
+출전선수상담결과 → ^ 구분 txt (창원·광명·부산 공용 화면)
+출력: 회차코드^경주일(YYYY-MM-DD)^성명^기수^체중^200미터^333미터^500미터^도로^트랙^훈련일수^훈련지^훈련동참자^전회출전^훈련내용^참고사항^
+      (회차코드 예: c202641 / j202643 / b202638, 줄 끝에 ^ 하나 더)
 """
-import re
 from datetime import date
 
 import pandas as pd
 import requests
 import streamlit as st
-from bs4 import BeautifulSoup
 
-from common.lepopark import (
-    COUNSEL_URL, clean, fetch_html, find_seqtimes, first_race_date, to_txt_bytes,
-)
+from common.formats import COUNSEL_COLUMNS as COLUMNS, counsel_code
+from common.lepopark import to_txt_bytes
+from common.sites import SITES
+from common.tracks import TRACKS
 
-TRACK_CODE = "c"   # 창원
 SEP = "^"
 
-COLUMNS = ["회차", "경주일", "성명", "기수", "체중", "200미터", "333미터", "500미터",
-           "도로", "트랙", "훈련일수", "훈련지", "훈련동참자", "전회출전", "훈련내용", "참고사항"]
 
+def render(track: str):
+    t = TRACKS[track]
+    site = SITES[track]
+    state_key = f"counsel_result_{t.slug}"
+    use_seq = track == "창원"   # 창원 사이트만 시퀀스넘버로 회차를 고름
 
-# ───────────────────────── 파싱 ─────────────────────────
-def parse_counsel(html: str):
-    """페이지 → (년도, 회차, seqtimes, 선수행 리스트)"""
-    soup = BeautifulSoup(html, "html.parser")
-    y = soup.select_one("#rcyear option[selected]")
-    t = soup.select_one("#rctimes option[selected]")
-    year = y.get("value", "").strip() if y else ""
-    times = re.sub(r"\D", "", t.get_text()) if t else ""
-    seq = t.get("value", "").strip() if t else ""
+    st.title(f"🚴 {track}경륜 출전선수상담결과")
+    if use_seq:
+        st.caption("시퀀스넘버만 넣어도 되고, 년도+회차만 넣어도 됩니다. 비워 둔 값은 사이트에서 자동으로 채웁니다.")
+    else:
+        st.caption(f"{t.site_name} 기준 년도와 회차를 넣어 주세요. 경주일자를 비우면 해당 회차 1일차 날짜를 자동으로 넣습니다.")
 
-    players = []
-    for table in soup.select("table.training-table"):
-        for tr in table.select("tbody tr"):
-            tds = [clean(td.get_text(" ")) for td in tr.find_all("td")]
-            if len(tds) < 14:
-                continue
-            name = re.sub(r"\s*\(.*?\)\s*", "", tds[0]).strip()   # '심상훈 (후보)' → '심상훈'
-            # 0성명 1기수 2체중 3:200 4:333 5:500 6도로 7트랙 8훈련일수
-            # 9훈련지 10훈련동참자 11전회출전 12훈련내용 13참고사항
-            players.append([name, tds[1], tds[2], tds[3], tds[4], tds[5],
-                            tds[6], tds[7], tds[8], tds[9], tds[10], tds[11], tds[12], tds[13]])
-    return year, times, seq, players
+    with st.form(f"counsel_query_{t.slug}"):
+        cols = st.columns(4 if use_seq else 3)
+        seq_in = cols[0].text_input("시퀀스넘버 (seqtimes)", placeholder="예: 25566") if use_seq else ""
+        k = 1 if use_seq else 0
+        date_in = cols[k].date_input("경주일자", value=None, format="YYYY-MM-DD",
+                                     help="비우면 해당 회차 1일차 날짜를 자동 입력")
+        year_in = cols[k + 1].text_input("년도", value="" if use_seq else str(date.today().year),
+                                         placeholder=f"예: {date.today().year}")
+        times_in = cols[k + 2].text_input("회차", placeholder="예: 41")
 
+        o1, o2, _ = st.columns([1, 1, 2])
+        with_header = o1.checkbox("txt 첫 줄에 항목명 포함", value=False)
+        encoding = o2.selectbox("txt 인코딩", ["utf-8", "cp949"],
+                                help="엑셀/메모장(구버전)에서 한글이 깨지면 cp949")
+        submitted = st.form_submit_button("조회", type="primary", width="stretch")
 
-def counsel_url(seqtimes: str | None) -> str:
-    return f"{COUNSEL_URL}?seqtimes={seqtimes}" if seqtimes else COUNSEL_URL
-
-
-# ───────────────────────── 화면 ─────────────────────────
-st.title("🚴 창원경륜 출전선수상담결과")
-st.caption("시퀀스넘버만 넣어도 되고, 년도+회차만 넣어도 됩니다. 비워 둔 값은 사이트에서 자동으로 채웁니다.")
-
-with st.form("counsel_query"):
-    c1, c2, c3, c4 = st.columns(4)
-    seq_in = c1.text_input("시퀀스넘버 (seqtimes)", placeholder="예: 25566")
-    date_in = c2.date_input("경주일자", value=None, format="YYYY-MM-DD",
-                            help="비우면 해당 회차 1일차 날짜를 자동 입력")
-    year_in = c3.text_input("년도", placeholder=f"예: {date.today().year}")
-    times_in = c4.text_input("회차", placeholder="예: 41")
-
-    o1, o2, _ = st.columns([1, 1, 2])
-    with_header = o1.checkbox("txt 첫 줄에 항목명 포함", value=False)
-    encoding = o2.selectbox("txt 인코딩", ["utf-8", "cp949"],
-                            help="엑셀/메모장(구버전)에서 한글이 깨지면 cp949")
-    submitted = st.form_submit_button("조회", type="primary", width="stretch")
-
-if submitted:
-    seq_in, year_in, times_in = seq_in.strip(), year_in.strip(), times_in.strip()
-    try:
-        # 1) 시퀀스넘버 결정 (없으면 년도+회차로 찾기)
-        seq = seq_in
-        if seq and not seq.isdigit():
+    if submitted:
+        seq_in, year_in, times_in = seq_in.strip(), year_in.strip(), times_in.strip()
+        if seq_in and not seq_in.isdigit():
             st.error("시퀀스넘버는 숫자여야 합니다.")
             st.stop()
-        if not seq and year_in and times_in:
-            with st.spinner("회차 번호 조회 중..."):
-                seq = find_seqtimes(year_in, times_in)
-            if not seq:
-                st.error(f"{year_in}년 {times_in}회차를 찾을 수 없습니다.")
-                st.stop()
-
-        # 2) 페이지 수집 (seq 없으면 최신 회차)
-        with st.spinner("상담결과 페이지 수집 중..."):
-            p_year, p_times, p_seq, players = parse_counsel(fetch_html(counsel_url(seq)))
-        seq = seq or p_seq
-
-        if not players:
-            st.warning("상담결과 데이터가 없습니다. 시퀀스넘버를 확인하세요.")
-            st.markdown(f"[원본 페이지 열기]({counsel_url(seq)})")
+        if not use_seq and not (year_in.isdigit() and times_in.isdigit()):
+            st.error("년도와 회차를 숫자로 입력해 주세요.")
+            st.stop()
+        try:
+            with st.spinner("상담결과 페이지 수집 중..."):
+                if use_seq:
+                    res = site.load_counsel(year_in, times_in, seq_in, date_in)
+                else:
+                    res = site.load_counsel(year_in, times_in, date_in)
+        except ValueError as e:
+            st.error(str(e))
+            st.stop()
+        except requests.RequestException as e:
+            st.error(f"사이트 접속 실패: {e}")
             st.stop()
 
-        # 3) 년도/회차/경주일: 입력값 우선, 없으면 자동
-        year = year_in or p_year
-        times = times_in or p_times
-        if not (year.isdigit() and times.isdigit()):
+        if not res["players"]:
+            st.session_state.pop(state_key, None)
+            st.warning("상담결과 데이터가 없습니다. 년도·회차를 확인하세요.")
+            st.markdown(f"[원본 페이지 열기]({res['url']})")
+            st.stop()
+        if not (res["year"].isdigit() and res["times"].isdigit()):
             st.error("년도/회차를 확인할 수 없습니다. 직접 입력해 주세요.")
             st.stop()
-        if p_year and p_times and (year != p_year or int(times) != int(p_times)):
-            st.info(f"참고: 페이지 기준은 {p_year}년 {p_times}회차입니다. "
-                    f"입력값({year}년 {times}회차)으로 표기합니다.")
 
-        # 경주일 형식: YYYY-MM-DD (예: 2026-10-29)
-        if date_in:
-            rdate = date_in.strftime("%Y-%m-%d")
-        else:
-            d = first_race_date(year, seq)          # API 값은 YYYYMMDD
-            rdate = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else ""
-            if not rdate:
-                st.warning("경주일을 자동으로 찾지 못했습니다. 경주일자를 직접 입력해 주세요.")
-
-        code = f"{TRACK_CODE}{year}{int(times):02d}"
-        st.session_state["counsel_result"] = {
-            "code": code, "seq": seq, "rdate": rdate,
-            "df": pd.DataFrame([[code, rdate] + p for p in players], columns=COLUMNS),
+        code = counsel_code(track, res["year"], res["times"])
+        st.session_state[state_key] = {
+            "code": code, "seq": res["seq"], "rdate": res["rdate"], "url": res["url"],
+            "notes": res["notes"],
+            "df": pd.DataFrame([[code, res["rdate"]] + p for p in res["players"]], columns=COLUMNS),
             "with_header": with_header, "encoding": encoding,
         }
-    except requests.RequestException as e:
-        st.error(f"사이트 접속 실패: {e}")
-        st.stop()
 
-# 결과 표시 (다운로드 버튼을 눌러도 화면 유지)
-res = st.session_state.get("counsel_result")
-if res:
+    # 결과 표시 (다운로드 버튼을 눌러도 화면 유지)
+    res = st.session_state.get(state_key)
+    if not res:
+        return
+    for note in res["notes"]:
+        st.info(f"참고: {note}")
+    if not res["rdate"]:
+        st.warning("경주일을 자동으로 찾지 못했습니다. 경주일자를 직접 입력해 주세요.")
+
     df = res["df"]
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("회차", res["code"])
-    m2.metric("시퀀스넘버", res["seq"])
-    m3.metric("경주일", res["rdate"] or "-")
-    m4.metric("선수 수", f"{len(df)}명")
+    m = st.columns(4 if use_seq else 3)
+    m[0].metric("회차", res["code"])
+    if use_seq:
+        m[1].metric("시퀀스넘버", res["seq"])
+    m[-2].metric("경주일", res["rdate"] or "-")
+    m[-1].metric("선수 수", f"{len(df)}명")
 
     st.download_button(
         "📥 txt 파일 다운로드",
@@ -148,5 +117,5 @@ if res:
         preview = to_txt_bytes(df.head(10), sep=SEP, header=res["with_header"], trailing_sep=True).decode("utf-8")
         st.code(preview, language=None)
 
-    url = counsel_url(res["seq"])
-    st.markdown(f"<small>원본: <a href='{url}' target='_blank'>{url}</a></small>", unsafe_allow_html=True)
+    st.markdown(f"<small>원본: <a href='{res['url']}' target='_blank'>{res['url']}</a></small>",
+                unsafe_allow_html=True)
