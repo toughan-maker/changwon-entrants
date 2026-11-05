@@ -15,6 +15,8 @@ from bs4 import BeautifulSoup
 
 TRACK_PREFIX = {"창원": "c", "부산": "b", "광명": "g"}
 
+NO_RANK = "9"  # 낙차·실격 등으로 순위가 나오지 않은 선수의 순위 값
+
 PLAYER_COLUMNS = [
     "raceno", "선수번호", "선수명", "순위", "착차", "주행시간", "승부수",
     "200미터기록", "최종주회기록", "실격", "경고", "주의", "기권구분",
@@ -197,10 +199,14 @@ def parse_players(table) -> list[dict]:
             j = idx[k]
             return _text(row[j]) if j is not None and j < len(row) else ""
 
+        rank = v("순위")
+        if not rank.isdigit():
+            rank = NO_RANK  # 낙차·실격 등으로 순위가 없는 경우
+
         out.append({
             "선수번호": m.group(1),
             "선수명": m.group(2).strip(),
-            "순위": v("순위"), "착차": v("착차"), "주행시간": v("주행시간"),
+            "순위": rank, "착차": v("착차"), "주행시간": v("주행시간"),
             "승부수": v("승부수"), "실격": v("실격"), "경고": v("경고"),
             "주의": v("주의"), "기권구분": v("기권"),
         })
