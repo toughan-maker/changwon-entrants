@@ -62,68 +62,66 @@ def _load_certs(data: bytes) -> list[x509.Certificate]:
     return []
 
 
-def _fetch_intermediates(leaf: x509.Certificate, max_depth: int = 4) -> list[x509.Certificate]:
-    """서버 인증서에서 시작해 발급기관 주소를 따라가며 중간 인증서 수집"""
-    found, cert = [], leaf
-    for _ in range(max_depth):
-        if cert.issuer == cert.subject:          # 루트(자체 서명)까지 도달
-            break
-        nxt = None
-        for url in _issuer_urls(cert):
+def _download_issuer(cert: x509.Certificate):
+    """인증서에 적힌 발급기관 주소(AIA)에서 발급자 인증서 받기. 서명이 맞는 것만 반환."""
+    for url in _issuer_urls(cert):
+        try:
+            resp = requests.get(url, timeout=15)
+            resp.raise_for_status()
+        except requests.RequestException:
+            continue
+        for cand in _load_certs(resp.content):
             try:
-                resp = requests.get(url, timeout=15)
-                resp.raise_for_status()
-            except requests.RequestException:
+                cert.verify_directly_issued_by(cand)
+                return cand
+            except Exception:
                 continue
-            certs = _load_certs(resp.content)
-            if certs:
-                nxt = certs[0]
-                found.extend(certs)
-                break
-        if nxt is None:
-            break
-        cert = nxt
-    return found
+    return None
 
 
-def _chains_to_trusted_root(leaf, intermediates, roots) -> bool:
-    """서버 인증서 → 받아온 중간 인증서들 → 신뢰 목록(certifi)의 루트까지
-    서명이 한 단계씩 실제로 이어지는지 확인. (받아온 인증서를 그냥 믿지 않기 위함)"""
-    chain = [leaf] + intermediates
-    try:
-        for child, parent in zip(chain, chain[1:]):
-            child.verify_directly_issued_by(parent)
-    except Exception:
-        return False
-    last = chain[-1]
+def _issued_by_trusted_root(cert: x509.Certificate, roots) -> bool:
     for root in roots:
-        if root.subject == last.issuer:
+        if root.subject == cert.issuer:
             try:
-                last.verify_directly_issued_by(root)
+                cert.verify_directly_issued_by(root)
                 return True
             except Exception:
                 continue
-    return any(last == r for r in roots)
+    return False
+
+
+def build_chain(leaf: x509.Certificate, roots, max_depth: int = 4):
+    """서버 인증서에서 시작해 발급기관 주소를 따라가다가, 신뢰 목록(certifi)의 루트가
+    서명한 인증서에 닿으면 바로 멈춤. → 그때까지 받은 중간 인증서 목록.
+    루트까지 서명이 이어지지 않으면 None (받아온 인증서를 그냥 믿지 않음)."""
+    chain, cert = [], leaf
+    for _ in range(max_depth + 1):
+        if _issued_by_trusted_root(cert, roots):
+            return chain
+        nxt = _download_issuer(cert)
+        if nxt is None or nxt.issuer == nxt.subject:   # 더 못 가거나, 신뢰 목록에 없는 루트
+            return None
+        chain.append(nxt)
+        cert = nxt
+    return None
 
 
 def bundle_for(url: str) -> str | None:
-    """해당 사이트용 검증 파일(certifi + 받아온 중간 인증서) 경로. 받을 게 없으면 None."""
+    """해당 사이트용 검증 파일(certifi + 받아온 중간 인증서) 경로. 보완할 수 없으면 None."""
     p = urlparse(url)
     host, port = p.hostname, p.port or 443
     key = f"{host}:{port}"
     with _lock:
         if key in _bundles:
             return _bundles[key]
-        try:
-            leaf = _server_leaf(host, port)
-            extra = _fetch_intermediates(leaf)
-        except (OSError, ValueError):
-            return None
         with open(certifi.where(), "rb") as f:
             base = f.read()
         roots = x509.load_pem_x509_certificates(base)
-        extra = [c for c in extra if c.issuer != c.subject]          # 루트는 신뢰 목록에 있는 것만 사용
-        if not extra or not _chains_to_trusted_root(leaf, extra, roots):
+        try:
+            extra = build_chain(_server_leaf(host, port), roots)
+        except (OSError, ValueError):
+            return None
+        if not extra:
             return None
         fd, path = tempfile.mkstemp(prefix=f"ca_{host}_", suffix=".pem")
         with os.fdopen(fd, "wb") as f:
