@@ -13,6 +13,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from common import tls_fix
+
 # ───────────────────────── 주소 ─────────────────────────
 BASE = "https://www.lepopark.or.kr"
 
@@ -42,9 +44,30 @@ def _get(url: str, params: dict | None = None) -> requests.Response:
     # Referer 는 요청하는 사이트 주소로 (창원·광명·부산 사이트 공용)
     origin = re.match(r"https?://[^/]+", url)
     headers = {**HEADERS, "Referer": (origin.group(0) if origin else BASE) + "/"}
-    resp = requests.get(url, params=params, headers=headers, timeout=30)
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=30,
+                            verify=tls_fix.bundle_for(url) if _needs_bundle(url) else True)
+    except requests.exceptions.SSLError as e:
+        # 서버가 중간 인증서를 빠뜨린 경우(예: 스포원) → 받아와서 다시 정상 검증
+        bundle = tls_fix.bundle_for(url) if tls_fix.is_cert_error(e) else None
+        if not bundle:
+            raise
+        _BUNDLE_HOSTS.add(_host(url))
+        resp = requests.get(url, params=params, headers=headers, timeout=30, verify=bundle)
     resp.raise_for_status()
     return resp
+
+
+_BUNDLE_HOSTS: set[str] = set()   # 중간 인증서 보완이 필요했던 사이트 (다음부터 바로 사용)
+
+
+def _host(url: str) -> str:
+    m = re.match(r"https?://([^/:]+)", url)
+    return m.group(1) if m else ""
+
+
+def _needs_bundle(url: str) -> bool:
+    return _host(url) in _BUNDLE_HOSTS
 
 
 @st.cache_data(ttl=600, show_spinner=False)  # 같은 페이지는 10분간 다시 요청하지 않음
