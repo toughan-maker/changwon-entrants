@@ -5,7 +5,15 @@
 """
 import re
 
-from common.tracks import TRACK_PREFIX
+from common.tracks import TRACK_FIELD, TRACK_PREFIX
+
+
+def format_name(name: str) -> str:
+    """선수명 정리. 외자(두 글자) 이름은 성과 이름 사이에 공백 두 칸: '김현' / '김 현' → '김  현'.
+    그 외 이름은 안쪽 공백을 모두 없앰."""
+    n = re.sub(r"\s+", "", name or "")
+    return f"{n[0]}  {n[1]}" if len(n) == 2 else n
+
 
 # ───────────────────────── 출주표 ─────────────────────────
 # 결과 파일 열 순서 (창원에서 쓰던 순서 그대로. '경기장점수' = 해당 경기장 최근3회 평균득점)
@@ -50,13 +58,13 @@ def entrant_row(*, track, race_no_id, race_date, race_time, grade, player_no, na
                 rank, residual="") -> dict:
     return {
         "경주번호": race_no_id, "경주일": race_date, "경주시간": race_time,
-        "선수번호": str(player_no), "선수명": name.strip(),
+        "선수번호": str(player_no), "선수명": format_name(name),
         "기수": first_number(kisu), "나이": first_number(age),
         "기어배수": (gear or "").strip(), "등급": grade,
         "승률": first_number(win), "연대율": first_number(quinella),
         "200미터기록": normalize_record(rec200), "훈련지": (train or "").strip(),
         "경기장점수": first_number(track_score), "종합점수": first_number(total_score),
-        "경기장": track, "상금순위": first_number(rank),
+        "경기장": TRACK_FIELD[track], "상금순위": first_number(rank),
         "잔여점수": first_number(residual),
     }
 
@@ -75,7 +83,7 @@ def counsel_values(cells: list[str]) -> list[str]:
     → 정리된 14개 값. '-' 는 빈칸, '(후보)' 표시는 지움."""
     vals = [("" if c.strip() in {"-", "－"} else c.strip()) for c in cells[:14]]
     vals += [""] * (14 - len(vals))
-    vals[0] = re.sub(r"\s*\(.*?\)\s*", "", vals[0]).strip()     # '심상훈 (후보)' → '심상훈'
+    vals[0] = format_name(re.sub(r"\s*\(.*?\)\s*", "", vals[0]))  # '심상훈 (후보)' → '심상훈', '김현' → '김  현'
     vals[1] = first_number(vals[1])                              # '25기' → '25'
     return vals
 

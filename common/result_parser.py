@@ -16,7 +16,8 @@ import re
 import pandas as pd
 from bs4 import BeautifulSoup
 
-from common.tracks import TRACK_PREFIX
+from common.formats import format_name
+from common.tracks import TRACK_FIELD, TRACK_PREFIX
 
 NO_RANK = "9"  # 낙차·실격 등으로 순위가 나오지 않은 선수의 순위 값
 
@@ -185,7 +186,7 @@ def parse_players(table) -> list[dict]:
 
         out.append({
             "선수번호": num,
-            "선수명": name.strip(),
+            "선수명": format_name(name),
             "순위": rank, "착차": v("착차"), "주행시간": normalize_time(v("주행시간")),
             "승부수": re.sub(r"\s+", "", v("승부수")),  # '추 입' → '추입'
             "실격": v("실격"), "경고": v("경고"), "주의": v("주의"), "기권구분": v("기권"),
@@ -310,7 +311,7 @@ def build_tables(races: list[dict], track: str, year: str, round_no: str, day: s
                 if (last_lap is not None and diff is not None) else "",
                 "실격": p["실격"], "경고": p["경고"], "주의": p["주의"],
                 "기권구분": p["기권구분"],
-                "경기장": track, "경주일자": race_date, "경주등급": grade,
+                "경기장": TRACK_FIELD[track], "경주일자": race_date, "경주등급": grade,
                 "인기순위": str(pop) if pop else "",
             })
 
@@ -322,7 +323,7 @@ def build_tables(races: list[dict], track: str, year: str, round_no: str, day: s
         quin = [(sort_ticket(a), b) for a, b in odds.get("복승", [])]
         trio = [(sort_ticket(a), b) for a, b in odds.get("삼복승", [])]
 
-        row = {"경주일자": race_date, "raceno": raceno, "경주등급": grade, "경기장": track}
+        row = {"경주일자": race_date, "raceno": raceno, "경주등급": grade, "경기장": TRACK_FIELD[track]}
         row["단승"], row["단승배당률"] = _pick(win, 0)
         row["동착단승"], row["단승동착배당률"] = _pick(win, 1)
         for i in range(3):

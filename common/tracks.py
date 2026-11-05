@@ -16,12 +16,14 @@ class Track:
     slug: str
     site: str
     site_name: str
+    field: str   # txt 파일의 '경기장' 필드 값 (광명은 DB 기준 예전 이름 '잠실')
 
 
 TRACKS = {
-    "창원": Track("창원", "c", "changwon", "https://www.lepopark.or.kr", "창원레포츠파크"),
-    "광명": Track("광명", "j", "gwangmyeong", "https://kcycle.or.kr", "KCYCLE(광명)"),
-    "부산": Track("부산", "b", "busan", "https://www.spo1.or.kr", "스포원(부산)"),
+    "창원": Track("창원", "c", "changwon", "https://www.lepopark.or.kr", "창원레포츠파크", "창원"),
+    "광명": Track("광명", "j", "gwangmyeong", "https://kcycle.or.kr", "KCYCLE(광명)", "잠실"),
+    "부산": Track("부산", "b", "busan", "https://www.spo1.or.kr", "스포원(부산)", "부산"),
 }
 
 TRACK_PREFIX = {name: t.prefix for name, t in TRACKS.items()}
+TRACK_FIELD = {name: t.field for name, t in TRACKS.items()}   # 창원→창원, 광명→잠실, 부산→부산
