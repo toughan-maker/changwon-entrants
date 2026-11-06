@@ -20,8 +20,9 @@ class Track:
 
 
 TRACKS = {
-    "창원": Track("창원", "c", "changwon", "https://www.lepopark.or.kr", "창원레포츠파크", "창원"),
+    # 순서 = 메뉴 순서 (광명 → 창원 → 부산)
     "광명": Track("광명", "j", "gwangmyeong", "https://kcycle.or.kr", "KCYCLE(광명)", "잠실"),
+    "창원": Track("창원", "c", "changwon", "https://www.lepopark.or.kr", "창원레포츠파크", "창원"),
     "부산": Track("부산", "b", "busan", "https://www.spo1.or.kr", "스포원(부산)", "부산"),
 }
 

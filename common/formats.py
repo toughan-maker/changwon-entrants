@@ -85,6 +85,8 @@ def counsel_values(cells: list[str]) -> list[str]:
     vals += [""] * (14 - len(vals))
     vals[0] = format_name(re.sub(r"\s*\(.*?\)\s*", "", vals[0]))  # '심상훈 (후보)' → '심상훈', '김현' → '김  현'
     vals[1] = first_number(vals[1])                              # '25기' → '25'
+    w = re.findall(r"\d+(?:\.\d+)?", vals[2])                    # 체중 '75->74' → '74' (바뀐 뒤 체중)
+    vals[2] = w[-1] if w else vals[2]
     return vals
 
 

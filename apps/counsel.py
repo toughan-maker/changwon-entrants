@@ -114,8 +114,10 @@ def render(track: str):
         st.dataframe(df, hide_index=True, width="stretch",
                      column_config={"훈련내용": st.column_config.TextColumn(width="large")})
     with tab_txt:
-        preview = to_txt_bytes(df.head(10), sep=SEP, header=res["with_header"], trailing_sep=True).decode("utf-8")
-        st.code(preview, language=None)
+        # 내려받는 파일 내용 전체 (인코딩만 화면용 utf-8)
+        preview = to_txt_bytes(df, sep=SEP, header=res["with_header"], trailing_sep=True).decode("utf-8")
+        st.caption(f"총 {preview.count(chr(10))}줄")
+        st.code(preview, language=None, height=600)
 
     st.markdown(f"<small>원본: <a href='{res['url']}' target='_blank'>{res['url']}</a></small>",
                 unsafe_allow_html=True)

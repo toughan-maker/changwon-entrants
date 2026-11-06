@@ -46,7 +46,7 @@ for track, t in TRACKS.items():
             _page(module, track), title=title, icon=icon,
             # 창원은 예전 주소(/entrant 등) 그대로, 광명·부산은 /entrant-gwangmyeong 형식
             url_path=path if track == "창원" else f"{path}-{t.slug}",
-            default=(track == "창원" and path == "entrant"),
+            default=(track == next(iter(TRACKS)) and path == "entrant"),  # 맨 위 경기장의 출주표
         )
         for module, title, icon, path in MENUS
     ]
