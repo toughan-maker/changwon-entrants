@@ -68,6 +68,10 @@ def render():
         except Exception as e:  # noqa: BLE001 — 어떤 오류든 화면에 설명
             st.session_state.pop("db_tables", None)
             st.error(db.explain_error(e))
+            with st.spinner("네트워크 진단 중..."):
+                diag = db.diagnose()
+            st.markdown("**네트워크 진단**")
+            st.table(pd.DataFrame(diag, columns=["항목", "결과"]).set_index("항목"))
             with st.expander("원본 오류 메시지"):
                 st.code(str(e), language=None)
             return
