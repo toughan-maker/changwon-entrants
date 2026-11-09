@@ -9,13 +9,17 @@ Secrets 형식 (.streamlit/secrets.toml 또는 Streamlit Cloud > Settings > Secr
     database = "DB이름"
     user = "DB아이디"
     password = "DB비밀번호"
+    mode = "default"                  # 접속 방식: default / legacy / legacy_off / pytds
+                                      # (관리 > DB 연결 테스트의 '접속 방식 진단'에서 되는 방식을 확인)
 
 드라이버: pymssql (pip 설치만으로 동작, Streamlit Cloud·리눅스 서버 모두 사용 가능)
 """
+import os
 import socket
 
-import pymssql
 import streamlit as st
+
+from common import db_probe
 
 
 def settings() -> dict | None:
@@ -28,17 +32,35 @@ def settings() -> dict | None:
     return None if missing else cfg
 
 
+def mode() -> str:
+    cfg = settings() or {}
+    m = str(cfg.get("mode", "default"))
+    return m if m in db_probe.MODES else "default"
+
+
 def connect(timeout: int = 15):
-    """새 DB 연결. 쓰고 나면 close() 하세요 (with 문 사용 권장)."""
+    """새 DB 연결. with 문으로 쓰면 자동으로 닫힙니다."""
     cfg = settings()
     if cfg is None:
         raise RuntimeError("DB 접속 정보(Secrets의 [mssql])가 설정되지 않았습니다.")
-    return pymssql.connect(
-        server=cfg["server"], port=str(cfg.get("port", 1433)),
-        user=cfg["user"], password=cfg["password"], database=cfg["database"],
-        login_timeout=timeout, timeout=60, charset="UTF-8", autocommit=False,
-        tds_version=str(cfg.get("tds_version", "7.4")),   # SQL Server 2012 이상
-    )
+    m = mode()
+    if m == "pytds":
+        import pytds
+        return pytds.connect(server=cfg["server"], port=int(cfg.get("port", 1433)),
+                             database=cfg["database"], user=cfg["user"], password=cfg["password"],
+                             login_timeout=timeout, timeout=60, autocommit=False)
+    if m.startswith("legacy"):
+        # pymssql 안에 들어있는 FreeTDS·OpenSSL 이 처음 쓰이기 전에 설정해야 적용됨
+        for k, v in db_probe.legacy_env().items():
+            os.environ.setdefault(k, v)
+    import pymssql
+    kw = dict(server=cfg["server"], port=str(cfg.get("port", 1433)),
+              user=cfg["user"], password=cfg["password"], database=cfg["database"],
+              login_timeout=timeout, timeout=60, charset="UTF-8", autocommit=False,
+              tds_version=str(cfg.get("tds_version", "7.4")))   # SQL Server 2012 이상
+    if m == "legacy_off":
+        kw["encryption"] = "off"
+    return pymssql.connect(**kw)
 
 
 def query(sql: str, params: tuple | None = None) -> tuple[list[str], list[tuple]]:
@@ -58,10 +80,8 @@ def explain_error(exc: Exception) -> str:
     if "4060" in msg or "Cannot open database" in msg:
         return "DB 이름이 틀렸거나 이 계정에 해당 DB 권한이 없습니다."
     if "20002" in msg:
-        return ("DB 서버와 접속 절차(TDS)를 시작하지 못했습니다. 가장 흔한 원인은 server 주소가 "
-                "홈페이지(웹서버) 주소인 경우입니다. 카페24 '서비스 접속 정보'의 DB 접속 주소"
-                "(예: sql19-001.cafe24.com) 또는 ASP 연결 문자열의 Data Source 값을 넣었는지 확인하세요. "
-                "아래 '네트워크 진단' 결과도 함께 보세요.")
+        return ("DB 서버와 접속 절차(TDS)를 마치지 못했습니다. 포트가 열려 있다면 대개 암호화(TLS) 방식이 "
+                "맞지 않는 경우입니다. 아래 '접속 방식 진단'으로 되는 방식을 찾아 주세요.")
     if "20009" in msg or "Unable to connect" in msg or "timed out" in msg.lower() or "Adaptive Server is unavailable" in msg:
         return ("서버에 연결할 수 없습니다. 서버 주소·포트를 확인하세요. 주소가 맞다면 카페24가 "
                 "외부(특히 해외) 접속을 막고 있을 수 있습니다. 아래 '이 앱의 접속 IP'를 카페24에 알려 허용을 요청하세요.")

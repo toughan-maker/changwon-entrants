@@ -9,7 +9,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from common import db
+from common import db, db_probe
 
 
 def _admin_gate() -> bool:
@@ -40,6 +40,38 @@ def _my_ip() -> str:
         return "확인 실패"
 
 
+def _mode_check(cfg: dict):
+    """서버 버전·암호화 설정 확인 + 접속 방식별 시도"""
+    if not st.button("접속 방식 진단", width="stretch", key="mode_check"):
+        return
+    host, port = cfg["server"], int(cfg.get("port", 1433))
+    with st.spinner("서버 정보 확인 중..."):
+        try:
+            info = db_probe.probe_server(host, port)
+        except OSError as e:
+            info = {"error": str(e)}
+    st.markdown("**서버 정보 (로그인 전 확인)**")
+    st.table(pd.DataFrame([(k, v) for k, v in info.items() if k not in ("major", "enc")],
+                          columns=["항목", "결과"]).set_index("항목"))
+
+    rows, ok_modes = [], []
+    with st.spinner("접속 방식을 하나씩 시도하는 중... (최대 2~3분)"):
+        for m, label in db_probe.MODES.items():
+            r = db_probe.try_mode(cfg, m)
+            rows.append((m, label, "✅ 성공" if r["ok"] else "❌ 실패", r["msg"]))
+            if r["ok"]:
+                ok_modes.append(m)
+    st.markdown("**접속 방식별 결과**")
+    st.dataframe(pd.DataFrame(rows, columns=["mode", "방식", "결과", "내용"]), hide_index=True, width="stretch")
+    if ok_modes:
+        best = ok_modes[0]
+        st.success(f"'{best}' 방식으로 접속됩니다. Secrets의 [mssql]에 mode = \"{best}\" 를 추가하고 앱을 재시작하세요.")
+        if best == "pytds":
+            st.warning("pytds 방식은 암호화 없이 접속합니다. 가능하면 카페24에 SQL Server TLS 1.2 지원 여부를 문의해 보세요.")
+    else:
+        st.error("모든 방식이 실패했습니다. 이 표 전체를 알려주세요.")
+
+
 def render():
     st.title("🔌 DB 연결 테스트")
     st.caption("카페24 MSSQL에 접속되는지 확인합니다. 읽기만 하고 데이터는 바꾸지 않습니다.")
@@ -53,7 +85,7 @@ def render():
     if cfg is None:
         st.warning("Secrets에 [mssql] 접속 정보가 없습니다. 안내에 따라 server, database, user, password를 넣어 주세요.")
         return
-    st.caption(f"DB: {cfg['database']} · 계정: {cfg['user']}")
+    st.caption(f"DB: {cfg['database']} · 계정: {cfg['user']} · 접속 방식: {db.mode()} ({db_probe.MODES[db.mode()]})")
 
     if st.button("연결 테스트", type="primary", width="stretch"):
         try:
@@ -74,10 +106,17 @@ def render():
             st.table(pd.DataFrame(diag, columns=["항목", "결과"]).set_index("항목"))
             with st.expander("원본 오류 메시지"):
                 st.code(str(e), language=None)
-            return
-        st.success("✅ 연결 성공")
-        st.dataframe(pd.DataFrame(rows, columns=cols), hide_index=True, width="stretch")
-        st.session_state["db_tables"] = pd.DataFrame(trows, columns=tcols)
+            st.info("포트가 열려 있다면 아래 '접속 방식 진단'을 눌러 되는 방식을 찾아 주세요.")
+            st.session_state["db_failed"] = True
+        else:
+            st.session_state["db_failed"] = False
+            st.success("✅ 연결 성공")
+            st.dataframe(pd.DataFrame(rows, columns=cols), hide_index=True, width="stretch")
+            st.session_state["db_tables"] = pd.DataFrame(trows, columns=tcols)
+
+    with st.expander("🔧 접속 방식 진단 (연결이 안 될 때)", expanded=bool(st.session_state.get("db_failed"))):
+        st.caption("서버 버전·암호화 설정을 확인하고, 접속 방식을 하나씩 시도해 되는 방식을 찾습니다. 데이터는 바꾸지 않습니다.")
+        _mode_check(cfg)
 
     tables = st.session_state.get("db_tables")
     if tables is None:
