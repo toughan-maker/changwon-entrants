@@ -10,6 +10,7 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from common import auth, db, db_upload
 from common.formats import ENTRANT_COLUMNS as COLUMNS, EXTRA_COLUMNS
 from common.lepopark import to_txt_bytes
 from common.sites import SITES
@@ -19,6 +20,7 @@ from common.tracks import TRACKS
 def render(track: str):
     t = TRACKS[track]
     site = SITES[track]
+    state_key = f"entrant_result_{t.slug}"
 
     st.title(f"🚴 {track}경륜 출주표 → TXT")
     st.caption(f"{t.site_name} 출주표에서 {track} 경주 정보를 추출해 txt로 내려받습니다.")
@@ -31,25 +33,32 @@ def render(track: str):
             race_day = st.date_input("경주일", value=date.today(), format="YYYY-MM-DD")
         submitted = st.form_submit_button("조회", type="primary", width="stretch")
 
-    if not submitted:
+    if submitted:
+        fixed = kind == "확정"
+        try:
+            with st.spinner("출주표를 가져오는 중..."):
+                df, label, url = site.load_entrant(race_day, fixed)
+        except requests.RequestException as e:
+            st.session_state.pop(state_key, None)
+            st.error(f"페이지를 가져오지 못했습니다: {e}")
+            st.stop()
+        if df.empty:
+            st.session_state.pop(state_key, None)
+            st.warning(
+                f"{race_day:%Y-%m-%d} {kind}출주표에서 {track} 경주를 찾지 못했습니다. "
+                "경주가 없는 날이거나 아직 출주표가 올라오지 않았을 수 있습니다."
+            )
+            st.markdown(f"[원본 페이지 열기]({url})")
+            st.stop()
+        # 조회 결과를 보관 → DB 업로드·다운로드 버튼을 눌러도 화면 유지
+        st.session_state[state_key] = {"df": df, "label": label, "url": url, "kind": kind,
+                                       "fixed": fixed, "date_str": race_day.strftime("%Y%m%d")}
+        st.session_state.pop(f"{state_key}_upload", None)
+
+    res = st.session_state.get(state_key)
+    if not res:
         return
-
-    date_str = race_day.strftime("%Y%m%d")
-    fixed = kind == "확정"
-    try:
-        with st.spinner("출주표를 가져오는 중..."):
-            df, label, url = site.load_entrant(race_day, fixed)
-    except requests.RequestException as e:
-        st.error(f"페이지를 가져오지 못했습니다: {e}")
-        st.stop()
-
-    if df.empty:
-        st.warning(
-            f"{race_day:%Y-%m-%d} {kind}출주표에서 {track} 경주를 찾지 못했습니다. "
-            "경주가 없는 날이거나 아직 출주표가 올라오지 않았을 수 있습니다."
-        )
-        st.markdown(f"[원본 페이지 열기]({url})")
-        st.stop()
+    df, label, url, kind, fixed, date_str = (res[k] for k in ("df", "label", "url", "kind", "fixed", "date_str"))
 
     st.success(f"{label} · {kind}출주표 · {track} {df['경주번호'].nunique()}개 경주, 선수 {len(df)}명")
 
@@ -88,6 +97,8 @@ def render(track: str):
         )
 
     view_df = df[COLUMNS].rename(columns={"경기장점수": f"{track}점수"})
+    _db_upload(df, main_df, extra_df, state_key)
+
     tab_race, tab_all, tab_extra = st.tabs(["경주별 보기", "전체 표", "추가 파일 미리보기"])
     with tab_race:
         for (no, grade, tm), g in view_df.groupby(["경주번호", "등급", "경주시간"], sort=False):
@@ -101,3 +112,33 @@ def render(track: str):
         st.dataframe(extra_df, hide_index=True, width="stretch")
 
     st.markdown(f"<small>원본: <a href='{url}' target='_blank'>{url}</a></small>", unsafe_allow_html=True)
+
+
+def _db_upload(df, main_df, extra_df, state_key):
+    """관리자만: chuljuRec 에 업로드 (있으면 수정, 없으면 추가)"""
+    st.divider()
+    if not auth.is_admin():
+        st.caption("🗄️ DB 업로드는 **관리 > 관리자 로그인** 후 사용할 수 있습니다.")
+        return
+    if db.settings() is None:
+        st.caption("🗄️ DB 접속 정보(Secrets의 [mssql])가 없어 DB 업로드를 할 수 없습니다.")
+        return
+    upload_df = main_df.copy()
+    for c in ["값1", "값2", "값3", "잔여점수"]:
+        upload_df[c] = extra_df[c].values
+    rows, warns = db_upload.chulju_records(upload_df)
+    c1, c2 = st.columns([3, 1])
+    c1.markdown(f"🗄️ **DB 업로드** · `{db_upload.TABLE}` 에 {len(rows)}행 "
+                "(경주번호+선수번호가 같으면 수정, 없으면 추가)")
+    if c2.button("DB에 업로드", type="primary", width="stretch", key=f"{state_key}_btn", disabled=not rows):
+        try:
+            with st.spinner("DB에 반영하는 중..."):
+                r = db_upload.upsert_chulju(rows)
+            st.session_state[f"{state_key}_upload"] = ("ok", f"✅ 업로드 완료: 추가 {r['inserted']}행, 수정 {r['updated']}행")
+        except Exception as e:  # noqa: BLE001
+            st.session_state[f"{state_key}_upload"] = ("err", f"업로드 실패 (모두 취소되어 DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
+    for w in warns:
+        st.warning(w)
+    done = st.session_state.get(f"{state_key}_upload")
+    if done:
+        (st.success if done[0] == "ok" else st.error)(done[1])

@@ -1,34 +1,13 @@
 """
 DB 연결 테스트 (관리자 전용)
 - 읽기 전용: 서버 정보, 테이블 목록, 테이블 열 구조만 조회합니다. 데이터는 바꾸지 않습니다.
-- 임시 잠금: Secrets 의 [admin] password 로 확인 (정식 로그인은 다음 단계에서 추가)
+- 관리자 로그인 필요
 """
-import hmac
-
 import pandas as pd
 import requests
 import streamlit as st
 
-from common import db, db_probe
-
-
-def _admin_gate() -> bool:
-    """임시 관리자 확인. 통과하면 True"""
-    try:
-        admin_pw = st.secrets["admin"]["password"]
-    except (KeyError, FileNotFoundError):
-        st.error("관리자 비밀번호(Secrets의 [admin] password)가 설정되지 않아 이 화면을 열 수 없습니다.")
-        return False
-    if st.session_state.get("admin_ok"):
-        return True
-    with st.form("admin_login"):
-        pw = st.text_input("관리자 비밀번호", type="password")
-        if st.form_submit_button("확인", type="primary"):
-            if hmac.compare_digest(pw.encode(), str(admin_pw).encode()):
-                st.session_state["admin_ok"] = True
-                st.rerun()
-            st.error("비밀번호가 틀렸습니다.")
-    return False
+from common import auth, db, db_probe
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -75,7 +54,7 @@ def _mode_check(cfg: dict):
 def render():
     st.title("🔌 DB 연결 테스트")
     st.caption("카페24 MSSQL에 접속되는지 확인합니다. 읽기만 하고 데이터는 바꾸지 않습니다.")
-    if not _admin_gate():
+    if not auth.login_form():
         return
 
     cfg = db.settings()
