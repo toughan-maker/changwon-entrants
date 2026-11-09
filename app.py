@@ -19,7 +19,7 @@
 """
 import streamlit as st
 
-from apps import counsel, entrant, result
+from apps import admin_db, counsel, entrant, result
 from common.tracks import TRACKS
 
 st.set_page_config(page_title="경륜 도구", page_icon="🚴", layout="wide")
@@ -50,5 +50,8 @@ for track, t in TRACKS.items():
         )
         for module, title, icon, path in MENUS
     ]
+
+# 관리 메뉴 (관리자 비밀번호 필요)
+pages["관리"] = [st.Page(admin_db.render, title="DB 연결 테스트", icon="🔌", url_path="admin-db")]
 
 st.navigation(pages).run()
