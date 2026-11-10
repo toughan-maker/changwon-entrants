@@ -53,10 +53,10 @@ for track, t in TRACKS.items():
     ]
 
 # 관리 메뉴 (관리자 비밀번호 필요)
-pages["관리"] = [
-    st.Page(admin_login.render, title="관리자 로그인", icon="🔑", url_path="admin-login"),
-    st.Page(admin_db.render, title="DB 연결 테스트", icon="🔌", url_path="admin-db"),
-]
+# 관리 메뉴: 로그인은 모두, DB 연결 테스트는 슈퍼관리자에게만 보임
+pages["관리"] = [st.Page(admin_login.render, title="관리자 로그인", icon="🔑", url_path="admin-login")]
+if auth.is_super():
+    pages["관리"].append(st.Page(admin_db.render, title="DB 연결 테스트", icon="🔌", url_path="admin-db"))
 
 auth.sidebar_status()
 

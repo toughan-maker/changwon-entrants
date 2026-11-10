@@ -1,7 +1,7 @@
 """
 DB 연결 테스트 (관리자 전용)
 - 읽기 전용: 서버 정보, 테이블 목록, 테이블 열 구조만 조회합니다. 데이터는 바꾸지 않습니다.
-- 관리자 로그인 필요
+- 슈퍼관리자 전용 (메뉴도 슈퍼관리자에게만 보임)
 """
 import pandas as pd
 import requests
@@ -54,7 +54,8 @@ def _mode_check(cfg: dict):
 def render():
     st.title("🔌 DB 연결 테스트")
     st.caption("카페24 MSSQL에 접속되는지 확인합니다. 읽기만 하고 데이터는 바꾸지 않습니다.")
-    if not auth.login_form():
+    if not auth.is_super():   # 메뉴에서 숨겨도 주소로 직접 들어오는 경우 대비
+        st.error("슈퍼관리자만 사용할 수 있는 메뉴입니다.")
         return
 
     cfg = db.settings()
