@@ -10,7 +10,7 @@ DB 업로드 (카페24 MSSQL)
 - 열 길이를 넘는 값은 잘라서 넣고 경고 (키 열은 자르지 않고 그 행을 건너뜀)
   · nvarchar: 글자 수 기준
   · varchar : 바이트 수 기준 (한글 1글자 = 2바이트, CP949)
-- 표에 없는 DB 열은 건드리지 않음 (UPDATE 때 기존 값 유지)
+- 표에 없는 DB 열, insert_only 로 지정한 열은 UPDATE 때 건드리지 않음 (기존 값 유지)
 """
 import re
 from dataclasses import dataclass
@@ -37,6 +37,7 @@ class Target:
     keys: tuple[str, ...]
     cols: tuple[Col, ...]
     label: str
+    insert_only: tuple[str, ...] = ()   # 새로 추가할 때만 넣고, 수정(UPDATE) 때는 기존 값 유지
 
 
 CHULJU = Target("chuljuRec", ("raceNo", "playerNumber"), (
@@ -65,6 +66,7 @@ CHULJU = Target("chuljuRec", ("raceNo", "playerNumber"), (
 ), "출주표")
 
 # 상담결과: 기수·전회출전은 넣지 않음, trainStatus·healthStatus·condition 은 건드리지 않음
+#           description·kija_desc 는 새 행일 때만 넣고, 이미 있는 행을 수정할 때는 기존 값 유지
 COUNSEL = Target("councel", ("racenoofweek", "playerName"), (
     Col("racenoofweek", "회차", "vstr", 7),
     Col("playdate", "경주일", "date"),
@@ -80,7 +82,7 @@ COUNSEL = Target("councel", ("racenoofweek", "playerName"), (
     Col("description", "훈련내용", "vstr", 200),
     Col("traindate", "훈련일수", "int"),
     Col("kija_desc", "참고사항", "vstr", 300),
-), "상담결과")
+), "상담결과", insert_only=("description", "kija_desc"))
 
 # 하위 호환 (출주표 화면에서 쓰던 이름)
 TABLE = CHULJU.table
@@ -170,7 +172,7 @@ def upsert(target: Target, rows: list[dict]) -> dict:
         return {"inserted": 0, "updated": 0}
     t, keys = target.table, list(target.keys)
     cols = [c.db for c in target.cols]
-    sets = [c for c in cols if c not in keys]
+    sets = [c for c in cols if c not in keys and c not in target.insert_only]
     where = " AND ".join(f"[{k}] = %s" for k in keys)
     update_sql = f"UPDATE {t} SET " + ", ".join(f"[{c}] = %s" for c in sets) + f" WHERE {where}"
     insert_sql = (f"INSERT INTO {t} ({', '.join(f'[{c}]' for c in cols)}) "
