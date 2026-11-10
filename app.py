@@ -19,7 +19,7 @@
 """
 import streamlit as st
 
-from apps import admin_db, admin_login, counsel, entrant, result
+from apps import admin_db, admin_login, counsel, entrant, manage_chulju, result
 from common import auth
 from common.tracks import TRACKS
 
@@ -53,8 +53,10 @@ for track, t in TRACKS.items():
     ]
 
 # 관리 메뉴 (관리자 비밀번호 필요)
-# 관리 메뉴: 로그인은 모두, DB 연결 테스트는 슈퍼관리자에게만 보임
+# 관리 메뉴: 로그인은 모두, 출주표 관리는 관리자 이상, DB 연결 테스트는 슈퍼관리자에게만 보임
 pages["관리"] = [st.Page(admin_login.render, title="관리자 로그인", icon="🔑", url_path="admin-login")]
+if auth.is_admin():   # 관리자·슈퍼관리자
+    pages["관리"].append(st.Page(manage_chulju.render, title="출주표 관리", icon="📝", url_path="manage-chulju"))
 if auth.is_super():
     pages["관리"].append(st.Page(admin_db.render, title="DB 연결 테스트", icon="🔌", url_path="admin-db"))
 
