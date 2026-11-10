@@ -9,10 +9,12 @@ import pandas as pd
 import requests
 import streamlit as st
 
+from common import db_upload
 from common.formats import COUNSEL_COLUMNS as COLUMNS, counsel_code
 from common.lepopark import to_txt_bytes
 from common.sites import SITES
 from common.tracks import TRACKS
+from common.upload_ui import upload_box
 
 SEP = "^"
 
@@ -76,6 +78,7 @@ def render(track: str):
             st.stop()
 
         code = counsel_code(track, res["year"], res["times"])
+        st.session_state.pop(f"{state_key}_upload", None)
         st.session_state[state_key] = {
             "code": code, "seq": res["seq"], "rdate": res["rdate"], "url": res["url"],
             "notes": res["notes"],
@@ -108,6 +111,8 @@ def render(track: str):
         mime="text/plain", type="primary", width="stretch",
         on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
     )
+
+    upload_box(df, db_upload.COUNSEL, state_key)
 
     tab_table, tab_txt = st.tabs(["결과 표", "txt 미리보기"])
     with tab_table:

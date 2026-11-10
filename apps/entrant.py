@@ -10,7 +10,8 @@ import pandas as pd
 import requests
 import streamlit as st
 
-from common import auth, db, db_upload
+from common import db_upload
+from common.upload_ui import upload_box
 from common.formats import ENTRANT_COLUMNS as COLUMNS, EXTRA_COLUMNS
 from common.lepopark import to_txt_bytes
 from common.sites import SITES
@@ -97,7 +98,11 @@ def render(track: str):
         )
 
     view_df = df[COLUMNS].rename(columns={"경기장점수": f"{track}점수"})
-    _db_upload(df, main_df, extra_df, state_key)
+    # DB 업로드: 결과 파일 + 추가 파일(값1~3, 잔여점수)을 한 행으로
+    upload_df = main_df.copy()
+    for c in ["값1", "값2", "값3", "잔여점수"]:
+        upload_df[c] = extra_df[c].values
+    upload_box(upload_df, db_upload.CHULJU, state_key)
 
     tab_race, tab_all, tab_extra = st.tabs(["경주별 보기", "전체 표", "추가 파일 미리보기"])
     with tab_race:
@@ -113,32 +118,3 @@ def render(track: str):
 
     st.markdown(f"<small>원본: <a href='{url}' target='_blank'>{url}</a></small>", unsafe_allow_html=True)
 
-
-def _db_upload(df, main_df, extra_df, state_key):
-    """관리자만: chuljuRec 에 업로드 (있으면 수정, 없으면 추가)"""
-    st.divider()
-    if not auth.is_admin():
-        st.caption("🗄️ DB 업로드는 **관리 > 관리자 로그인** 후 사용할 수 있습니다.")
-        return
-    if db.settings() is None:
-        st.caption("🗄️ DB 접속 정보(Secrets의 [mssql])가 없어 DB 업로드를 할 수 없습니다.")
-        return
-    upload_df = main_df.copy()
-    for c in ["값1", "값2", "값3", "잔여점수"]:
-        upload_df[c] = extra_df[c].values
-    rows, warns = db_upload.chulju_records(upload_df)
-    c1, c2 = st.columns([3, 1])
-    c1.markdown(f"🗄️ **DB 업로드** · `{db_upload.TABLE}` 에 {len(rows)}행 "
-                "(경주번호+선수번호가 같으면 수정, 없으면 추가)")
-    if c2.button("DB에 업로드", type="primary", width="stretch", key=f"{state_key}_btn", disabled=not rows):
-        try:
-            with st.spinner("DB에 반영하는 중..."):
-                r = db_upload.upsert_chulju(rows)
-            st.session_state[f"{state_key}_upload"] = ("ok", f"✅ 업로드 완료: 추가 {r['inserted']}행, 수정 {r['updated']}행")
-        except Exception as e:  # noqa: BLE001
-            st.session_state[f"{state_key}_upload"] = ("err", f"업로드 실패 (모두 취소되어 DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
-    for w in warns:
-        st.warning(w)
-    done = st.session_state.get(f"{state_key}_upload")
-    if done:
-        (st.success if done[0] == "ok" else st.error)(done[1])
