@@ -7,14 +7,17 @@ from datetime import date
 import requests
 import streamlit as st
 
+from common import db_upload
 from common.lepopark import to_txt_bytes
 from common.sites import SITES
 from common.tracks import TRACKS
+from common.upload_ui import upload_box
 
 
 def render(track: str):
     t = TRACKS[track]
     site = SITES[track]
+    state_key = f"result_{t.slug}"
 
     st.title(f"🏁 {track}경륜 경주결과 → TXT")
     st.caption(f"{t.site_name} 경주결과에서 {track} 경주를 추출해 DB 업로드용 쉼표 구분 txt 2개로 내려받습니다.")
@@ -29,25 +32,31 @@ def render(track: str):
             round_no = st.text_input("회차", value="", placeholder="예: 33")
         submitted = st.form_submit_button("조회", type="primary", width="stretch")
 
-    if not submitted:
+    if submitted:
+
+        year, round_no = year.strip(), round_no.strip()
+        if not (year.isdigit() and len(year) == 4):
+            st.error("년도는 4자리 숫자로 입력해 주세요.")
+            st.session_state.pop(state_key, None); st.stop()
+        if not round_no:
+            st.error("회차를 입력해 주세요.")
+            st.session_state.pop(state_key, None); st.stop()
+
+        date_str = race_day.strftime("%Y%m%d")
+        try:
+            with st.spinner("경주결과와 최종배당률을 가져오는 중... (경주 수에 따라 시간이 걸립니다)"):
+                res = site.load_result(race_day, year, round_no)
+        except requests.RequestException as e:
+            st.error(f"페이지를 가져오지 못했습니다: {e}")
+            st.session_state.pop(state_key, None); st.stop()
+        st.session_state[state_key] = {"res": res, "year": year, "round_no": round_no,
+                                       "race_day": race_day, "date_str": date_str}
+        st.session_state.pop(f"{state_key}_upload", None)
+
+    saved = st.session_state.get(state_key)
+    if not saved:
         return
-
-    year, round_no = year.strip(), round_no.strip()
-    if not (year.isdigit() and len(year) == 4):
-        st.error("년도는 4자리 숫자로 입력해 주세요.")
-        st.stop()
-    if not round_no:
-        st.error("회차를 입력해 주세요.")
-        st.stop()
-
-    date_str = race_day.strftime("%Y%m%d")
-    try:
-        with st.spinner("경주결과와 최종배당률을 가져오는 중... (경주 수에 따라 시간이 걸립니다)"):
-            res = site.load_result(race_day, year, round_no)
-    except requests.RequestException as e:
-        st.error(f"페이지를 가져오지 못했습니다: {e}")
-        st.stop()
-
+    res, year, round_no, race_day, date_str = (saved[k] for k in ("res", "year", "round_no", "race_day", "date_str"))
     players_df, races_df, url = res["players_df"], res["races_df"], res["url"]
     if races_df.empty:
         st.warning(f"{race_day:%Y-%m-%d} 경주결과에서 {track} 경주를 찾지 못했습니다. "
@@ -92,6 +101,9 @@ def render(track: str):
             mime="text/plain", type="primary", width="stretch",
             on_click="ignore",
         )
+
+    # DB 업로드: 경주정보(raceRec) + 선수별 결과(playerRec) 를 한 번에
+    upload_box([(races_df, db_upload.RACE), (players_df, db_upload.PLAYER)], state_key=state_key)
 
     tab_p, tab_r = st.tabs(["선수별 경주결과", "경주정보"])
     with tab_p:
