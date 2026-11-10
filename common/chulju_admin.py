@@ -4,7 +4,8 @@
 - 한 경주(raceNo)의 선수 행들을 불러와서
 - 공통 필드(playDate, playTime, ground, grade)는 모든 행에 같은 값으로,
 - 선수별 필드는 행마다 저장
-- 저장은 한 트랜잭션: 바뀐 행 UPDATE, 새 행 INSERT, 지운 행 DELETE
+- 저장은 한 트랜잭션: 바뀐 행 UPDATE, 지운 행 DELETE (선수번호는 키라서 수정·추가 안 함)
+- badpoint_2·1·n 은 화면에 없고 저장 때도 건드리지 않음 (기존 값 유지)
 """
 import re
 from datetime import date, datetime
@@ -17,7 +18,9 @@ from common.db_upload import CHULJU, Col
 TABLE = CHULJU.table
 COMMON = ["playDate", "playTime", "ground", "grade"]               # 표 위에 한 번만 표시
 COLS = {c.db: c for c in CHULJU.cols}
-GRID = [c.db for c in CHULJU.cols if c.db != "raceNo" and c.db not in COMMON]   # 표에 표시
+HIDDEN = ["badpoint_2", "badpoint_1", "badpoint_n"]                # 화면에 안 보이고, 저장 때도 건드리지 않음
+GRID = [c.db for c in CHULJU.cols if c.db != "raceNo" and c.db not in COMMON and c.db not in HIDDEN]   # 표에 표시
+LABEL = {c.db: c.src for c in CHULJU.cols}                          # 화면·오류 메시지용 한글 이름
 SMALLINT = (-32768, 32767)
 
 
@@ -70,16 +73,16 @@ def _value(v, col: Col, where: str, errors: list):
         try:
             n = int(float(v))
         except (TypeError, ValueError):
-            errors.append(f"{where} {col.db}: 숫자가 아닙니다 ('{v}')")
+            errors.append(f"{where} {LABEL[col.db]}: 숫자가 아닙니다 ('{v}')")
             return None
         if not SMALLINT[0] <= n <= SMALLINT[1]:
-            errors.append(f"{where} {col.db}: 범위를 벗어났습니다 ({n})")
+            errors.append(f"{where} {LABEL[col.db]}: 범위를 벗어났습니다 ({n})")
         return n
     if col.kind == "float":
         try:
             return float(v)
         except (TypeError, ValueError):
-            errors.append(f"{where} {col.db}: 숫자가 아닙니다 ('{v}')")
+            errors.append(f"{where} {LABEL[col.db]}: 숫자가 아닙니다 ('{v}')")
             return None
     if col.kind == "date":
         if isinstance(v, datetime):
@@ -88,12 +91,12 @@ def _value(v, col: Col, where: str, errors: list):
             return v
         m = re.match(r"(\d{4})-(\d{1,2})-(\d{1,2})", str(v))
         if not m:
-            errors.append(f"{where} {col.db}: 날짜 형식이 아닙니다 ('{v}')")
+            errors.append(f"{where} {LABEL[col.db]}: 날짜 형식이 아닙니다 ('{v}')")
             return None
         return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
     s = str(v).strip()
     if col.size and len(s) > col.size:
-        errors.append(f"{where} {col.db}: {col.size}자를 넘습니다 ('{s}')")
+        errors.append(f"{where} {LABEL[col.db]}: {col.size}자를 넘습니다 ('{s}')")
     return s
 
 
@@ -104,9 +107,9 @@ def plan_save(raceno: str, common_before: dict, common: dict, before: pd.DataFra
     errors = []
     com = {}
     for c in COMMON:
-        com[c] = _value(common.get(c), COLS[c], "공통", errors)
+        com[c] = _value(common.get(c), COLS[c], "", errors)
     if com["playDate"] is None:
-        errors.append("공통 playDate(경주일)는 비울 수 없습니다.")
+        errors.append("경주일은 비울 수 없습니다.")
 
     new_rows, seen = [], set()
     for i, r in after.reset_index(drop=True).iterrows():
@@ -117,10 +120,10 @@ def plan_save(raceno: str, common_before: dict, common: dict, before: pd.DataFra
         for c in GRID:
             rec[c] = _value(r.get(c), COLS[c], where, errors)
         if rec["playerNumber"] is None:
-            errors.append(f"{where}: playerNumber(선수번호)가 비어 있습니다.")
+            errors.append(f"{where}: 선수번호가 비어 있습니다.")
             continue
         if rec["playerNumber"] in seen:
-            errors.append(f"{where}: playerNumber {rec['playerNumber']} 가 중복입니다.")
+            errors.append(f"{where}: 선수번호 {rec['playerNumber']} 가 중복입니다.")
         seen.add(rec["playerNumber"])
         new_rows.append(rec)
 

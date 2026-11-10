@@ -12,18 +12,13 @@ from common.tracks import TRACKS
 STATE = "manage_chulju"
 
 
-def _labels():
-    """표 머리: '선수번호 (playerNumber)'"""
-    return {c: f"{A.COLS[c].src} ({c})" for c in A.GRID}
-
-
 def _column_config():
+    """표 머리는 한글 이름만. 선수번호는 키라서 수정 불가"""
     cfg = {}
     for c in A.GRID:
-        col, label = A.COLS[c], _labels()[c]
+        col, label = A.COLS[c], A.LABEL[c]
         if col.kind == "int":
-            cfg[c] = st.column_config.NumberColumn(label, step=1, format="%d",
-                                                   required=(c == "playerNumber"))
+            cfg[c] = st.column_config.NumberColumn(label, step=1, format="%d", disabled=(c == "playerNumber"))
         elif col.kind == "float":
             cfg[c] = st.column_config.NumberColumn(label, format="%.2f")
         else:
@@ -45,7 +40,7 @@ def render():
     if db.settings() is None:
         st.error("DB 접속 정보(Secrets의 [mssql])가 없습니다.")
         return
-    st.caption(f"DB 테이블 `{A.TABLE}` 의 한 경주를 불러와 수정하거나 삭제합니다.")
+    st.caption("DB에 올라간 출주표를 경주별로 불러와 수정하거나 삭제합니다.")
 
     with st.form("manage_chulju_search"):
         c1, c2, c3 = st.columns(3)
@@ -84,12 +79,12 @@ def render():
     # ── 공통 필드 + 삭제 버튼
     st.subheader(f"{raceno} · 선수 {len(grid)}명")
     c = st.columns([2, 2, 1.5, 1.5, 1.5, 1.2], vertical_alignment="bottom")
-    c[0].text_input("raceNo (경주번호)", value=raceno, disabled=True, key=f"rn_{k}")
+    c[0].text_input("경주번호", value=raceno, disabled=True, key=f"rn_{k}")
     new_common = {
-        "playDate": c[1].date_input("playDate (경주일)", value=common.get("playDate"), format="YYYY-MM-DD", key=f"pd_{k}"),
-        "playTime": c[2].text_input("playTime (경주시간)", value=common.get("playTime", ""), max_chars=10, key=f"pt_{k}"),
-        "ground": c[3].text_input("ground (경기장)", value=common.get("ground", ""), max_chars=10, key=f"gr_{k}"),
-        "grade": c[4].text_input("grade (등급)", value=common.get("grade", ""), max_chars=10, key=f"gd_{k}"),
+        "playDate": c[1].date_input("경주일", value=common.get("playDate"), format="YYYY-MM-DD", key=f"pd_{k}"),
+        "playTime": c[2].text_input("경주시간", value=common.get("playTime", ""), max_chars=10, key=f"pt_{k}"),
+        "ground": c[3].text_input("경기장", value=common.get("ground", ""), max_chars=10, key=f"gr_{k}"),
+        "grade": c[4].text_input("등급", value=common.get("grade", ""), max_chars=10, key=f"gd_{k}"),
     }
     with c[5].popover("🗑 삭제", width="stretch"):
         st.warning(f"**{raceno}** 의 {len(grid)}행을 모두 삭제합니다. 되돌릴 수 없습니다.")
@@ -103,9 +98,9 @@ def render():
             st.rerun()
 
     # ── 선수 표
-    st.caption("칸을 눌러 바로 고칠 수 있습니다. 맨 아래 빈 줄에 입력하면 선수 추가, 행을 선택해 휴지통 아이콘으로 선수 삭제. "
+    st.caption("칸을 눌러 바로 고칠 수 있습니다 (선수번호는 고정). 행 왼쪽을 선택하고 휴지통 아이콘을 누르면 선수 삭제. "
                "고친 뒤 **완료**를 눌러야 저장됩니다.")
-    edited = st.data_editor(grid, key=f"ed_{k}", num_rows="dynamic", hide_index=True, width="stretch",
+    edited = st.data_editor(grid, key=f"ed_{k}", num_rows="delete", hide_index=True, width="stretch",
                             column_config=_column_config(), column_order=A.GRID)
 
     b1, b2 = st.columns([3, 1])
@@ -123,6 +118,6 @@ def render():
             st.error(f"저장 실패 (모두 취소되어 DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
             return
         _load(raceno)   # 저장된 값으로 다시 불러오기
-        st.session_state[msg_key] = ("ok", f"✅ 저장 완료: 수정 {r['update']}행, 추가 {r['insert']}행, 삭제 {r['delete']}행")
+        st.session_state[msg_key] = ("ok", f"✅ 저장 완료: 수정 {r['update']}행, 삭제 {r['delete']}행")
         st.rerun()
     b1.caption("완료를 누르면 바뀐 행만 저장합니다. 공통 필드를 바꾸면 이 경주의 모든 행에 적용됩니다.")
