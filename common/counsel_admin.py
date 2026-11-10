@@ -16,11 +16,11 @@ TABLE = COUNSEL.table
 COLS = {c.db: c for c in COUNSEL.cols}
 # 표에 보여주는 순서 (배번·선수명은 출주표에서, 수정 불가)
 EDIT = ["curTrain", "withTrain", "weight", "outside", "pista",
-        "interval200", "interval300", "interval500", "traindate", "description", "kija_desc"]
+        "interval200", "interval300", "interval500", "traindate", "kija_desc", "description"]
 LABEL = {
     "playerNumber": "배번", "playerName": "선수명", "curTrain": "금주훈련지", "withTrain": "동반훈련자",
     "weight": "체중", "outside": "도로", "pista": "피스타", "interval200": "200M", "interval300": "300M",
-    "interval500": "500M", "traindate": "훈련일수", "description": "훈련내용", "kija_desc": "참고사항",
+    "interval500": "500M", "traindate": "훈련일수", "kija_desc": "훈련내용", "description": "참고사항",
     "_delete": "삭제",
 }
 LIMIT = {"tinyint": (0, 255), "smallint": (-32768, 32767)}

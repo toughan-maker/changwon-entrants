@@ -67,7 +67,8 @@ CHULJU = Target("chuljuRec", ("raceNo", "playerNumber"), (
 ), "출주표")
 
 # 상담결과: 기수·전회출전은 넣지 않음, trainStatus·healthStatus·condition 은 건드리지 않음
-#           description·kija_desc 는 새 행일 때만 넣고, 이미 있는 행을 수정할 때는 기존 값 유지
+#           훈련내용 → kija_desc, 참고사항 → description
+#           kija_desc·description 은 새 행일 때만 넣고, 이미 있는 행을 수정할 때는 기존 값 유지
 COUNSEL = Target("councel", ("racenoofweek", "playerName"), (
     Col("racenoofweek", "회차", "vstr", 7),
     Col("playdate", "경주일", "date"),
@@ -80,9 +81,9 @@ COUNSEL = Target("councel", ("racenoofweek", "playerName"), (
     Col("outside", "도로", "int"),
     Col("pista", "트랙", "int"),
     Col("weight", "체중", "int"),
-    Col("description", "훈련내용", "vstr", 200),
+    Col("kija_desc", "훈련내용", "vstr", 300),
     Col("traindate", "훈련일수", "int"),
-    Col("kija_desc", "참고사항", "vstr", 300),
+    Col("description", "참고사항", "vstr", 200),
 ), "상담결과", insert_only=("description", "kija_desc"))
 
 # 경주결과 - 경주정보 (weather·totaltime·totalmin·rap333·pos_near1~3 은 건드리지 않음)
