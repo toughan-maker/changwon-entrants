@@ -39,11 +39,14 @@ def render():
 
     # ── 상단: kyocha
     t = s["top"]
-    grounds = A.GROUNDS if t["kyocha_ground"] in A.GROUNDS else [t["kyocha_ground"], *A.GROUNDS]
+    grounds = A.KYOCHA_GROUNDS
+    if t["kyocha_ground"] not in grounds:
+        st.warning(f"DB의 교차 경기장 값 '{t['kyocha_ground']}' 은 창원·부산이 아닙니다. 둘 중 하나를 골라 저장하세요.")
     c = st.columns(5)
     top = {
         "kyocha_ground": c[0].selectbox(A.TOP_LABEL["kyocha_ground"], grounds,
-                                        index=grounds.index(t["kyocha_ground"]), key=f"kg_{v}"),
+                                        index=grounds.index(t["kyocha_ground"]) if t["kyocha_ground"] in grounds else 0,
+                                        key=f"kg_{v}"),
         "kyocha_raceno": c[1].number_input(A.TOP_LABEL["kyocha_raceno"], 0, 30, t["kyocha_raceno"], key=f"kr_{v}"),
         "ground_racecount": c[2].number_input(A.TOP_LABEL["ground_racecount"], 0, 30, t["ground_racecount"], key=f"gr_{v}"),
         "kyocha_pageno": c[3].number_input(A.TOP_LABEL["kyocha_pageno"], 0, 999, t["kyocha_pageno"], key=f"kp_{v}"),
@@ -57,19 +60,24 @@ def render():
         st.session_state[STATE]["ver"] = v = v + 1      # 표를 새 값으로 다시 그리기
         st.session_state[STATE]["top"] = top             # 지금 입력한 상단 값 유지
         st.rerun()
+    # 표에 넣는 값은 불러올 때(또는 다시 만들 때) 값으로 고정 → 상단을 바꿔도 표에서 고친 내용이 지워지지 않음
     order = s["order"].copy()
-    order["pageno"] = [A.pageno(top, n) for n in order["raceorder"]]
+    order["pageno"] = [A.pageno(s["top"], n) for n in order["raceorder"]]
     edited = st.data_editor(
-        order, key=f"order_{v}", hide_index=True, num_rows="fixed", width="stretch",
+        order, key=f"order_{v}", hide_index=True, num_rows="dynamic", width="stretch",
         column_config={
-            "raceorder": st.column_config.NumberColumn("경주순서", disabled=True, format="%d"),
-            "ground": st.column_config.SelectboxColumn("경기장", options=sorted(set(A.GROUNDS) | set(order["ground"])),
+            "raceorder": st.column_config.NumberColumn("경주순서", min_value=1, step=1, format="%d", required=True),
+            "ground": st.column_config.SelectboxColumn("경기장", options=list(dict.fromkeys([*A.GROUNDS, *order["ground"]])),
                                                        required=True),
             "racecount": st.column_config.TextColumn("경주번호", max_chars=4, required=True),
             "pageno": st.column_config.NumberColumn("페이지번호 (자동)", disabled=True, format="%d"),
         })
-    st.caption("페이지번호 = 교차1경주 짝수페이지번호 + 2 × (경주순서 − 1). 상단 값을 바꾸면 바로 다시 계산됩니다.")
+    st.caption("맨 아래 빈 줄에 입력하면 행 추가, 행을 선택해 휴지통 아이콘을 누르면 행 삭제. "
+               "저장할 때 경주순서로 정렬하고, 페이지번호는 교차1경주 짝수페이지번호 + 2 × (경주순서 − 1) 로 다시 계산합니다.")
+    if top["kyocha_pageno"] != s["top"]["kyocha_pageno"]:
+        st.caption("※ 교차1경주 짝수페이지번호를 바꿨습니다. 표의 페이지번호는 저장한 뒤 새 값으로 바뀝니다.")
 
+    edited = A.normalize(edited[["raceorder", "ground", "racecount"]])
     errors, notes = A.check(top, edited)
     for n in notes:
         st.info(n)
@@ -78,7 +86,7 @@ def render():
             st.error("저장하지 않았습니다.\n\n" + "\n".join(f"- {x}" for x in errors))
             return
         try:
-            r = A.save(top, s["raw"], edited[["raceorder", "ground", "racecount"]], s["sample"])
+            r = A.save(top, s["raw"], edited, s["sample"])
         except Exception as e:  # noqa: BLE001
             st.error(f"저장 실패 (모두 취소되어 DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
             return
