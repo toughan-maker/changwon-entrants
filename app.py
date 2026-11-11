@@ -19,7 +19,7 @@
 """
 import streamlit as st
 
-from apps import admin_db, admin_login, counsel, entrant, manage_chulju, manage_counsel, manage_kyocha, result
+from apps import admin_db, admin_login, counsel, entrant, manage_chulju, manage_counsel, manage_kyocha, manage_week, result
 from common import auth
 from common.tracks import TRACKS
 
@@ -59,6 +59,7 @@ if auth.is_admin():   # 관리자·슈퍼관리자
     pages["관리"].append(st.Page(manage_chulju.render, title="출주표 관리", icon="📝", url_path="manage-chulju"))
     pages["관리"].append(st.Page(manage_counsel.render, title="상담결과 관리", icon="🗣️", url_path="manage-counsel"))
     pages["관리"].append(st.Page(manage_kyocha.render, title="교차경주 관리", icon="🔀", url_path="manage-kyocha"))
+    pages["관리"].append(st.Page(manage_week.render, title="짝수 달력 변경", icon="📅", url_path="manage-week"))
 if auth.is_super():
     pages["관리"].append(st.Page(admin_db.render, title="DB 연결 테스트", icon="🔌", url_path="admin-db"))
 
