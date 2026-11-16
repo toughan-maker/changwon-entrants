@@ -1,5 +1,5 @@
 """
-선수정보 관리 (player_info + player_jisu) — 관리자·슈퍼관리자 전용
+선수정보 관리 (player_info) — 관리자·슈퍼관리자 전용
 선수조회 → 목록에서 선수 선택 → 상세정보 수정 / 삭제, 새 선수 추가
 """
 from datetime import date
@@ -9,7 +9,7 @@ import streamlit as st
 from common import auth, db, player_admin as A
 
 STATE = "manage_player"
-SECTIONS = ["기본", "기록·등급", "학력·경력", "능력치 (player_info)", "지수 (player_jisu)", "친분 선수"]
+SECTIONS = ["기본", "기록·등급", "학력·경력", "능력치", "친분 선수"]
 
 
 def _st() -> dict:
@@ -35,12 +35,12 @@ def _input(f: A.F, value, key: str):
     return st.text_input(label, value=value or "", key=key)
 
 
-def _form(info: dict, jisu: dict, retire_col: bool, new: bool, key: str):
-    """상세 입력 폼 → (제출 여부, info 값, jisu 값)"""
-    vals, jvals = {}, {}
+def _form(info: dict, retire_col: bool, new: bool, key: str):
+    """상세 입력 폼 → (제출 여부, 입력 값)"""
+    vals = {}
     with st.form(f"player_form_{key}"):
         for sec in SECTIONS:
-            fields = A.JISU_FIELDS if sec.startswith("지수") else [f for f in A.INFO_FIELDS if f.section == sec]
+            fields = [f for f in A.INFO_FIELDS if f.section == sec]
             st.markdown(f"**{sec}**")
             normal = [f for f in fields if not (f.wide or f.kind == "text")]
             cols = st.columns(4)
@@ -49,8 +49,7 @@ def _form(info: dict, jisu: dict, retire_col: bool, new: bool, key: str):
                     if f.db == "playerName" and not new:
                         st.text_input("선수명", value=info.get("playerName", ""), disabled=True, key=f"pn_{key}")
                         continue
-                    src = jisu if sec.startswith("지수") else info
-                    (jvals if sec.startswith("지수") else vals)[f.db] = _input(f, src.get(f.db), f"{f.db}_{sec}_{key}")
+                    vals[f.db] = _input(f, info.get(f.db), f"{f.db}_{sec}_{key}")
             if sec == "기본" and retire_col:
                 with cols[len(normal) % 4]:
                     cur = "은퇴" if str(info.get("retire_yn", "n")).lower() == "y" else "현역"
@@ -60,10 +59,9 @@ def _form(info: dict, jisu: dict, retire_col: bool, new: bool, key: str):
                 if f.wide or f.kind == "text":
                     vals[f.db] = _input(f, info.get(f.db), f"{f.db}_{key}")
             st.divider()
-        st.caption("* 표시는 꼭 입력해야 하는 항목입니다. 글자 길이는 바이트 기준입니다 (한글 1자 = 2바이트). "
-                   "지수(player_jisu)의 빈칸은 0으로 저장됩니다 (지수가 없던 선수는 하나라도 입력해야 만들어짐).")
+        st.caption("* 표시는 꼭 입력해야 하는 항목입니다. 글자 길이는 바이트 기준입니다 (한글 1자 = 2바이트).")
         ok = st.form_submit_button("➕ 선수 추가" if new else "✅ 저장", type="primary", width="stretch")
-    return ok, vals, jvals
+    return ok, vals
 
 
 def _retire_setup(retire_col: bool):
@@ -106,7 +104,7 @@ def render():
         st.error(f"DB 조회 실패: {db.explain_error(e)}\n\n{e}")
         return
     retire_col = s["retire_col"]
-    kisus, grades = s["opts"]
+    kisus = s["opts"]
 
     msg = st.session_state.pop(f"{STATE}_msg", None)
     if msg:
@@ -116,9 +114,9 @@ def render():
     # ── 선수조회
     with st.form("player_search"):
         c = st.columns([1, 1, 1, 2])
-        status = c[0].selectbox("현역/은퇴", ["전체", "현역", "은퇴"], disabled=not retire_col)
-        grade = c[1].selectbox("등급", ["전체", *grades])
-        kisu = c[2].selectbox("기수", ["전체", *kisus])
+        status = c[0].selectbox("현역/은퇴", ["전체", "현역", "은퇴"], index=1, disabled=not retire_col)
+        grade = c[1].selectbox("등급", ["전체", *A.GRADE_GROUPS], format_func=lambda g: A.GRADE_GROUPS.get(g, g))
+        kisu = c[2].selectbox("기수", ["전체", *kisus], format_func=lambda k: k if k == "전체" else f"{k}기")
         name = c[3].text_input("선수명", placeholder="일부만 입력해도 됩니다")
         searched = st.form_submit_button("검색", type="primary", width="stretch")
     if st.button("➕ 새 선수 추가"):
@@ -146,10 +144,10 @@ def render():
     # ── 새 선수 추가
     if s.get("mode") == "new":
         st.subheader("➕ 새 선수 추가")
-        ok, vals, jvals = _form({}, {}, retire_col, True, f"new_{s['ver']}")
+        ok, vals = _form({}, retire_col, True, f"new_{s['ver']}")
         if ok:
             try:
-                errors = A.create(vals, jvals, retire_col)
+                errors = A.create(vals, retire_col)
             except Exception as e:  # noqa: BLE001
                 st.error(f"추가 실패 (DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
                 return
@@ -164,7 +162,7 @@ def render():
     if s.get("mode") == "detail" and s.get("selected"):
         pname = s["selected"]
         try:
-            info, jisu, idx = A.load(pname, retire_col)
+            info = A.load(pname, retire_col)
         except Exception as e:  # noqa: BLE001
             st.error(f"상세정보 조회 실패: {db.explain_error(e)}\n\n{e}")
             return
@@ -174,12 +172,12 @@ def render():
         h1, h2 = st.columns([4, 1], vertical_alignment="bottom")
         h1.subheader(f"👤 {pname}")
         with h2.popover("🗑 선수 삭제", width="stretch"):
-            st.warning(f"**{pname}** 선수를 player_info·player_jisu 에서 삭제합니다. 되돌릴 수 없습니다. "
+            st.warning(f"**{pname}** 선수를 player_info 에서 삭제합니다. 되돌릴 수 없습니다. "
                        "(출주표·상담결과·경주결과의 기록은 그대로 남습니다)")
             if st.button("삭제 확인", type="primary", key=f"pdel_{pname}"):
                 try:
-                    ni, nj = A.delete(pname)
-                    st.session_state[f"{STATE}_msg"] = ("ok", f"🗑 '{pname}' 삭제 완료 (선수정보 {ni}행, 지수 {nj}행)")
+                    A.delete(pname)
+                    st.session_state[f"{STATE}_msg"] = ("ok", f"🗑 '{pname}' 선수를 삭제했습니다.")
                     s.update(mode=None, selected=None, opts=A.options())
                     if s.get("results") is not None:
                         s["results"] = s["results"][s["results"]["선수명"] != pname]
@@ -187,12 +185,10 @@ def render():
                 except Exception as e:  # noqa: BLE001
                     st.session_state[f"{STATE}_msg"] = ("err", f"삭제 실패 (DB는 바뀌지 않았습니다): {e}")
                 st.rerun()
-        if idx is None:
-            st.caption("이 선수는 player_jisu 에 지수가 없습니다. 지수를 하나라도 입력하고 저장하면 새로 만듭니다.")
-        ok, vals, jvals = _form(info, jisu, retire_col, False, f"{pname}_{s['ver']}")
+        ok, vals = _form(info, retire_col, False, f"{pname}_{s['ver']}")
         if ok:
             try:
-                errors = A.save(pname, vals, jvals, idx, retire_col)
+                errors = A.save(pname, vals, retire_col)
             except Exception as e:  # noqa: BLE001
                 st.error(f"저장 실패 (DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
                 return

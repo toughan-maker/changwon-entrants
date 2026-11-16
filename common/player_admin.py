@@ -1,9 +1,8 @@
 """
-선수정보 관리 (player_info + player_jisu) — Streamlit 없이 동작
+선수정보 관리 (player_info) — Streamlit 없이 동작
 
-- 두 테이블은 playerName 으로 연결
 - player_info.playerName 은 기본키: 상세화면에서는 바꾸지 않음 (다른 테이블들도 이름으로 연결되어 있음)
-- player_jisu 는 선수당 1행으로 다룸 (여러 행이면 idx 가 가장 큰 행, 없으면 새로 만듦)
+- 검색: 기수는 40기 이하만, 등급은 B(선발)·A(우수)·S(특선) 첫 글자로 묶음
 - retire_yn(은퇴여부, char(1), 기본값 'n') 열이 없으면 has_retire()=False → 모두 현역으로 취급
 """
 from dataclasses import dataclass
@@ -13,9 +12,11 @@ import pandas as pd
 
 from common import db
 
-INFO, JISU = "player_info", "player_jisu"
+INFO = "player_info"
+MAX_KISU = 40                      # 기수 선택지: 40기 이하 (있는 기수만, 내림차순)
+GRADE_GROUPS = {"B": "B(선발)", "A": "A(우수)", "S": "S(특선)"}   # 등급 선택지: 첫 글자로 묶음
 ENC = "cp949"
-RANGE = {"tinyint": (0, 255), "smallint": (-32768, 32767), "int": (-2147483648, 2147483647)}
+RANGE = {"tinyint": (0, 255), "smallint": (-32768, 32767)}
 
 
 @dataclass(frozen=True)
@@ -59,14 +60,14 @@ INFO_FIELDS = [
     F("univsilup", "대학·실업", "vstr", 50, section="학력·경력"),
     F("silup", "경력", "vstr", 100, section="학력·경력"),
     F("description", "설명", "text", section="학력·경력", wide=True),
-    F("jigu", "지구력", "smallint", section="능력치 (player_info)"),
-    F("sunbal", "순발력", "smallint", section="능력치 (player_info)"),
-    F("danspeed", "단속력", "smallint", section="능력치 (player_info)"),
-    F("judo", "주도력", "smallint", section="능력치 (player_info)"),
-    F("mark", "마크", "smallint", section="능력치 (player_info)"),
-    F("jojong", "조종력", "smallint", section="능력치 (player_info)"),
-    F("woonyoung", "운영력", "smallint", section="능력치 (player_info)"),
-    F("distance", "거리감", "smallint", section="능력치 (player_info)"),
+    F("jigu", "지구력", "smallint", section="능력치"),
+    F("sunbal", "순발력", "smallint", section="능력치"),
+    F("danspeed", "단속력", "smallint", section="능력치"),
+    F("judo", "주도력", "smallint", section="능력치"),
+    F("mark", "마크", "smallint", section="능력치"),
+    F("jojong", "조종력", "smallint", section="능력치"),
+    F("woonyoung", "운영력", "smallint", section="능력치"),
+    F("distance", "거리감", "smallint", section="능력치"),
     F("friend_info", "친분 선수", "vstr", 2000, section="친분 선수", wide=True),
     F("friend_info2", "친분 선수 2", "vstr", 500, section="친분 선수", wide=True),
     F("friend_info3", "친분 선수 3", "vstr", 500, section="친분 선수", wide=True),
@@ -74,8 +75,6 @@ INFO_FIELDS = [
     F("friend_info5", "친분 선수 5", "vstr", 500, section="친분 선수", wide=True),
 ]
 RETIRE = F("retire_yn", "은퇴여부", "char", 1, section="기본")
-JISU_FIELDS = [F(c, f.label, "int", section="지수 (player_jisu)")
-               for c, f in ((x.db, x) for x in INFO_FIELDS if x.section.startswith("능력치"))]
 BY_DB = {f.db: f for f in INFO_FIELDS + [RETIRE]}
 
 
@@ -102,23 +101,22 @@ def add_retire_column():
 
 
 # ───────────────────────── 조회 ─────────────────────────
-def options() -> tuple[list[int], list[str]]:
-    """검색 선택지: (기수 목록, 등급 목록)"""
-    _, k = db.query(f"SELECT DISTINCT kisu FROM {INFO} WHERE kisu IS NOT NULL ORDER BY kisu")
-    _, g = db.query(f"SELECT DISTINCT RTRIM(curGrade) FROM {INFO} WHERE curGrade IS NOT NULL AND RTRIM(curGrade) <> '' "
-                    "ORDER BY 1")
-    return [int(r[0]) for r in k], [str(r[0]) for r in g]
+def options() -> list[int]:
+    """기수 선택지: 40기 이하 중 있는 기수, 내림차순 (40, 39, …)"""
+    _, k = db.query(f"SELECT DISTINCT kisu FROM {INFO} WHERE kisu IS NOT NULL AND kisu <= %s ORDER BY kisu DESC",
+                    (MAX_KISU,))
+    return [int(r[0]) for r in k]
 
 
 def search(status: str, grade: str | None, kisu: int | None, name: str, retire_col: bool) -> pd.DataFrame:
-    """status: 전체 / 현역 / 은퇴 → [선수명, 기수, 등급, 현역여부]"""
+    """status: 전체 / 현역 / 은퇴, grade: 'B'·'A'·'S' (B1·B2·B3 → B) → [선수명, 기수, 등급, 현역여부]"""
     where, params = [], []
     if retire_col and status == "현역":
         where.append("ISNULL(retire_yn, 'n') <> 'y'")
     elif retire_col and status == "은퇴":
         where.append("retire_yn = 'y'")
     if grade:
-        where.append("RTRIM(curGrade) = %s"); params.append(grade)
+        where.append("LEFT(LTRIM(curGrade), 1) = %s"); params.append(grade)
     if kisu is not None:
         where.append("kisu = %s"); params.append(int(kisu))
     if name.strip():
@@ -131,21 +129,16 @@ def search(status: str, grade: str | None, kisu: int | None, name: str, retire_c
                          for r in rows], columns=["선수명", "기수", "등급", "현역여부"])
 
 
-def load(name: str, retire_col: bool) -> tuple[dict, dict, int | None]:
-    """→ (player_info 값, player_jisu 값, jisu idx 또는 None)"""
+def load(name: str, retire_col: bool) -> dict:
+    """→ player_info 값 (없으면 빈 dict)"""
     cols = [f.db for f in INFO_FIELDS] + (["retire_yn"] if retire_col else [])
     names, rows = db.query(f"SELECT {', '.join(f'[{c}]' for c in cols)} FROM {INFO} WHERE playerName = %s", (name,))
     if not rows:
-        return {}, {}, None
+        return {}
     info = {c: _clean(v) for c, v in zip(names, rows[0])}
     if not retire_col:
         info["retire_yn"] = "n"
-    jcols = [f.db for f in JISU_FIELDS]
-    _, jrows = db.query(f"SELECT TOP 1 idx, {', '.join(f'[{c}]' for c in jcols)} FROM {JISU} "
-                        "WHERE playerName = %s ORDER BY idx DESC", (name,))
-    if not jrows:
-        return info, {c: None for c in jcols}, None
-    return info, dict(zip(jcols, jrows[0][1:])), int(jrows[0][0])
+    return info
 
 
 def _clean(v):
@@ -201,46 +194,12 @@ def convert(values: dict, fields: list[F], errors: list) -> dict:
     return out
 
 
-def _jisu_values(jisu: dict, errors: list) -> dict | None:
-    """player_jisu 는 모든 지수가 NOT NULL → 빈칸은 0. 하나도 입력하지 않았으면 None (행을 만들지 않음)"""
-    vals = convert(jisu, JISU_FIELDS, errors)
-    if all(v is None for v in vals.values()):
-        return None
-    return {k: (0 if v is None else v) for k, v in vals.items()}
-
-
 # ───────────────────────── 저장 ─────────────────────────
-def _jisu_identity(cur) -> bool:
-    cur.execute(f"SELECT COLUMNPROPERTY(OBJECT_ID('{JISU}'), 'idx', 'IsIdentity')")
-    return (cur.fetchall()[0][0] or 0) == 1
-
-
-def _write_jisu(cur, name: str, vals: dict | None, idx: int | None):
-    if vals is None:
-        if idx is None:
-            return                 # 지수가 없던 선수에 아무것도 입력하지 않음 → 만들지 않음
-        vals = {f.db: 0 for f in JISU_FIELDS}   # 있던 지수를 모두 비우면 0 으로
-    cols = list(vals)
-    if idx is not None:
-        cur.execute(f"UPDATE {JISU} SET " + ", ".join(f"[{c}] = %s" for c in cols) + " WHERE idx = %s",
-                    tuple(vals[c] for c in cols) + (idx,))
-        return
-    if _jisu_identity(cur):
-        cur.execute(f"INSERT INTO {JISU} (playerName, {', '.join(cols)}) VALUES (%s, {', '.join(['%s'] * len(cols))})",
-                    (name, *(vals[c] for c in cols)))
-    else:
-        cur.execute(f"SELECT ISNULL(MAX(idx), 0) + 1 FROM {JISU} WITH (UPDLOCK, HOLDLOCK)")
-        new_idx = cur.fetchall()[0][0]
-        cur.execute(f"INSERT INTO {JISU} (idx, playerName, {', '.join(cols)}) "
-                    f"VALUES (%s, %s, {', '.join(['%s'] * len(cols))})", (new_idx, name, *(vals[c] for c in cols)))
-
-
-def save(name: str, info: dict, jisu: dict, idx: int | None, retire_col: bool) -> list[str]:
+def save(name: str, info: dict, retire_col: bool) -> list[str]:
     """기존 선수 수정 → 오류 목록 (오류가 있으면 저장 안 함)"""
     errors = []
     fields = [f for f in INFO_FIELDS if f.db != "playerName"] + ([RETIRE] if retire_col else [])
     iv = convert(info, fields, errors)
-    jv = _jisu_values(jisu, errors)
     if errors:
         return errors
     with db.connect() as conn:
@@ -248,7 +207,6 @@ def save(name: str, info: dict, jisu: dict, idx: int | None, retire_col: bool) -
         try:
             cur.execute(f"UPDATE {INFO} SET " + ", ".join(f"[{c}] = %s" for c in iv) + " WHERE playerName = %s",
                         tuple(iv.values()) + (name,))
-            _write_jisu(cur, name, jv, idx)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -256,14 +214,13 @@ def save(name: str, info: dict, jisu: dict, idx: int | None, retire_col: bool) -
     return []
 
 
-def create(info: dict, jisu: dict, retire_col: bool) -> list[str]:
+def create(info: dict, retire_col: bool) -> list[str]:
     """새 선수 추가 → 오류 목록"""
     errors = []
     fields = INFO_FIELDS + ([RETIRE] if retire_col else [])
     iv = convert(info, fields, errors)
     if retire_col and iv.get("retire_yn") is None:
         iv["retire_yn"] = "n"
-    jv = _jisu_values(jisu, errors)
     if errors:
         return errors
     name = iv["playerName"]
@@ -276,7 +233,6 @@ def create(info: dict, jisu: dict, retire_col: bool) -> list[str]:
                 return [f"선수명 '{name}' 은 이미 있습니다."]
             cur.execute(f"INSERT INTO {INFO} ({', '.join(f'[{c}]' for c in iv)}) VALUES ({', '.join(['%s'] * len(iv))})",
                         tuple(iv.values()))
-            _write_jisu(cur, name, jv, None)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -284,14 +240,11 @@ def create(info: dict, jisu: dict, retire_col: bool) -> list[str]:
     return []
 
 
-def delete(name: str) -> tuple[int, int]:
-    """player_info·player_jisu 에서 해당 선수 삭제 → (info 행 수, jisu 행 수)"""
+def delete(name: str) -> int:
+    """player_info 에서 해당 선수 삭제 → 삭제한 행 수"""
     with db.connect() as conn:
         cur = conn.cursor()
         try:
-            cur.execute(f"SELECT COUNT(*) FROM {JISU} WHERE playerName = %s", (name,))
-            nj = cur.fetchall()[0][0]
-            cur.execute(f"DELETE FROM {JISU} WHERE playerName = %s", (name,))
             cur.execute(f"SELECT COUNT(*) FROM {INFO} WHERE playerName = %s", (name,))
             ni = cur.fetchall()[0][0]
             cur.execute(f"DELETE FROM {INFO} WHERE playerName = %s", (name,))
@@ -299,4 +252,4 @@ def delete(name: str) -> tuple[int, int]:
         except Exception:
             conn.rollback()
             raise
-    return int(ni), int(nj)
+    return int(ni)
