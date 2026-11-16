@@ -143,11 +143,15 @@ def load_counsel(year: str = "", times: str = "", seq: str = "", race_day: date 
 
 
 # ───────────────────────── 경주결과 ─────────────────────────
-def load_result(race_day: date, year: str, round_no: str, track: str = TRACK) -> dict:
-    """반환 dict: players_df, races_df, label, url, warnings[], page(년·회·일차)"""
+def load_result(race_day: date, year: str, round_no: str, track: str = TRACK,
+                only: set[int] | None = None) -> dict:
+    """반환 dict: players_df, races_df, label, url, warnings[], page(년·회·일차)
+    only: 가져올 경주번호 (예: {5, 6, 7, 8}). None 이면 그날 전체"""
     date_str = race_day.strftime("%Y%m%d")
     url = RESULT_URL.format(date=date_str)
     races, info = lepopark_races(fetch_html(url), track)
+    if only:
+        races = [r for r in races if r["no"] in only]
     warnings = []
     for r in races:
         seq = info["seqrace"].get(r["no"])

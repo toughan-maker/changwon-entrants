@@ -166,7 +166,9 @@ def parse_summary(html: str, track: str = TRACK):
     return _page_head(soup), out
 
 
-def load_result(race_day: date, year: str, round_no: str, track: str = TRACK) -> dict:
+def load_result(race_day: date, year: str, round_no: str, track: str = TRACK,
+                only: set[int] | None = None) -> dict:
+    """only: 가져올 경주번호 (예: {5, 6, 7, 8}). None 이면 그날 전체"""
     warnings = []
     ymd = race_day.strftime("%Y%m%d")
     url = f"{BASE}/race/raceResult.do?RACEYY={race_day.year}&RACEDATE={ymd}"
@@ -177,6 +179,8 @@ def load_result(race_day: date, year: str, round_no: str, track: str = TRACK) ->
 
     races = []
     for no in sorted(summary):
+        if only and no not in only:
+            continue                      # 지정한 경주번호만 (상세·배당 페이지도 그 경주만 요청)
         seq, odds = summary[no]
         try:
             soup = BeautifulSoup(fetch_html(

@@ -30,6 +30,10 @@ def render(track: str):
             year = st.text_input("년도", value=str(date.today().year), max_chars=4)
         with c3:
             round_no = st.text_input("회차", value="", placeholder="예: 33")
+        r1, r2, r3 = st.columns([1, 1, 2])
+        no_from = r1.number_input("경주번호 (부터)", min_value=1, max_value=30, value=None, step=1, placeholder="처음")
+        no_to = r2.number_input("경주번호 (까지)", min_value=1, max_value=30, value=None, step=1, placeholder="끝")
+        r3.caption("일부 경주만 가져오려면 범위를 넣으세요 (예: 5 ~ 8). 비워 두면 그날 전체를 가져옵니다.")
         submitted = st.form_submit_button("조회", type="primary", width="stretch")
 
     if submitted:
@@ -41,26 +45,39 @@ def render(track: str):
         if not round_no:
             st.error("회차를 입력해 주세요.")
             st.session_state.pop(state_key, None); st.stop()
+        if no_from is not None and no_to is not None and no_from > no_to:
+            st.error("경주번호 범위가 거꾸로입니다. (부터 ≤ 까지)")
+            st.session_state.pop(state_key, None); st.stop()
+        # 경주번호 범위 (한쪽만 넣으면 그쪽부터 끝까지 / 처음부터 그쪽까지)
+        only, rng, suffix = None, "", ""
+        if no_from is not None or no_to is not None:
+            lo, hi = int(no_from or 1), int(no_to or 30)
+            only = set(range(lo, hi + 1))
+            rng = (f"{lo}경주" if lo == hi else f"{lo}~{hi}경주" if no_to is not None else f"{lo}경주부터")
+            suffix = f"_r{lo:02d}" if lo == hi else f"_r{lo:02d}-{f'{hi:02d}' if no_to is not None else ''}"
 
         date_str = race_day.strftime("%Y%m%d")
         try:
             with st.spinner("경주결과와 최종배당률을 가져오는 중... (경주 수에 따라 시간이 걸립니다)"):
-                res = site.load_result(race_day, year, round_no)
+                res = site.load_result(race_day, year, round_no, only=only)
         except requests.RequestException as e:
             st.error(f"페이지를 가져오지 못했습니다: {e}")
             st.session_state.pop(state_key, None); st.stop()
         st.session_state[state_key] = {"res": res, "year": year, "round_no": round_no,
-                                       "race_day": race_day, "date_str": date_str}
+                                       "race_day": race_day, "date_str": date_str, "rng": rng, "only": only,
+                                       "suffix": suffix, "closed": no_to is not None}
         st.session_state.pop(f"{state_key}_upload", None)
 
     saved = st.session_state.get(state_key)
     if not saved:
         return
     res, year, round_no, race_day, date_str = (saved[k] for k in ("res", "year", "round_no", "race_day", "date_str"))
+    rng, only, suffix = saved.get("rng", ""), saved.get("only"), saved.get("suffix", "")   # suffix 예: _r05-08
     players_df, races_df, url = res["players_df"], res["races_df"], res["url"]
     if races_df.empty:
-        st.warning(f"{race_day:%Y-%m-%d} 경주결과에서 {track} 경주를 찾지 못했습니다. "
-                   "경주가 없는 날이거나 아직 결과가 올라오지 않았을 수 있습니다.")
+        st.warning(f"{race_day:%Y-%m-%d} 경주결과에서 {track} {rng or '경주'}를 찾지 못했습니다. "
+                   + ("지정한 경주번호 범위를 확인하세요. " if rng else "")
+                   + "경주가 없는 날이거나 아직 결과가 올라오지 않았을 수 있습니다.")
         st.markdown(f"[원본 페이지 열기]({url})")
         st.stop()
 
@@ -84,20 +101,27 @@ def render(track: str):
         st.warning(f"raceno가 11자리가 아닙니다: {', '.join(bad['raceno'])}")
 
     day_label = f" {int(page['day'])}일차" if page.get("day") else ""
-    st.success(f"{year}년 {round_no}회{day_label} · {track} {len(races_df)}개 경주, 선수 {len(players_df)}명")
+    got = ", ".join(r[-2:] for r in races_df["raceno"])
+    st.success(f"{year}년 {round_no}회{day_label} · {track} {len(races_df)}개 경주"
+               + (f" ({rng} 지정: {got})" if rng else "") + f", 선수 {len(players_df)}명")
+    if only is not None:
+        missing = sorted(n for n in only if n <= max(int(r[-2:]) for r in races_df["raceno"])
+                         and f"{n:02d}" not in {r[-2:] for r in races_df["raceno"]})
+        if missing and saved.get("closed"):
+            st.info(f"지정한 범위 중 결과가 없는 경주: {', '.join(map(str, missing))}")
 
     d1, d2 = st.columns(2)
     with d1:
         st.download_button(
             "📥 선수별 경주결과(.txt)", data=to_txt_bytes(players_df, trailing_sep=True),
-            file_name=f"{t.slug}_result_player_{date_str}.txt",
+            file_name=f"{t.slug}_result_player_{date_str}{suffix}.txt",
             mime="text/plain", type="primary", width="stretch",
             on_click="ignore",  # 다운로드해도 화면을 다시 그리지 않음
         )
     with d2:
         st.download_button(
             "📥 경주정보(.txt)", data=to_txt_bytes(races_df, trailing_sep=True),
-            file_name=f"{t.slug}_result_race_{date_str}.txt",
+            file_name=f"{t.slug}_result_race_{date_str}{suffix}.txt",
             mime="text/plain", type="primary", width="stretch",
             on_click="ignore",
         )

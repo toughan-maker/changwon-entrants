@@ -199,7 +199,9 @@ def parse_race_page(html: str) -> dict:
             "players": parse_players(players_t) if players_t is not None else []}
 
 
-def load_result(race_day: date, year: str, round_no: str, track: str = TRACK) -> dict:
+def load_result(race_day: date, year: str, round_no: str, track: str = TRACK,
+                only: set[int] | None = None) -> dict:
+    """only: 가져올 경주번호 (예: {5, 6, 7, 8}). None 이면 그날 전체"""
     warnings = []
     found = find_tms_day("/race/result/general", race_day)
     empty = {"players_df": build_tables([], track, year, round_no, "1", "")[0],
@@ -215,6 +217,8 @@ def load_result(race_day: date, year: str, round_no: str, track: str = TRACK) ->
 
     races = []
     for no in sorted(summary):
+        if only and no not in only:
+            continue                      # 지정한 경주번호만 (상세·배당 페이지도 그 경주만 요청)
         try:
             page = parse_race_page(fetch_html(f"{url}/{MEET_CD}/{no:02d}"))
         except requests.RequestException:
