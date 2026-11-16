@@ -16,7 +16,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from common import formats as F
-from common.lepopark import fetch_html
+from common.lepopark import fetch_html, post_html
 from common.result_parser import (
     build_tables, odds_from_cells, parse_exacta, parse_info, parse_players,
     popularity_ranks, title_race,
@@ -242,3 +242,20 @@ def load_result(race_day: date, year: str, round_no: str, track: str = TRACK,
                                         race_day.strftime("%Y-%m-%d"))
     return {"players_df": players_df, "races_df": races_df, "url": url, "warnings": warnings,
             "page": {"year": str(y), "round": f"{tms:02d}", "day": f"{day:02d}"}}
+
+
+# ───────────────────────── 선수 명단 (현역·은퇴) ─────────────────────────
+def racer_list(retired: bool) -> pd.DataFrame:
+    """KCYCLE 선수조회(/racer/info) 의 현역 또는 은퇴 선수 명단 → [선수번호, 선수명, 등급, 기수]"""
+    html = post_html(f"{BASE}/racer/info", (("fstLet", ""), ("retiredYn", "Y" if retired else "N")))
+    soup = BeautifulSoup(html, "html.parser")
+    rows = []
+    for a in soup.select("li.prsnItem a.prsn"):
+        m = re.search(r"(\d{8})", a.get("onclick", ""))
+        if not m:
+            continue
+        cates = [_t(c) for c in a.select(".cate")]
+        grade = next((c for c in cates if re.fullmatch(r"[SAB]\d", c)), "")
+        kisu = next((re.sub(r"\D", "", c) for c in cates if c.endswith("기")), "")
+        rows.append((m.group(1), _t(a.select_one(".name")), grade, int(kisu) if kisu else None))
+    return pd.DataFrame(rows, columns=["선수번호", "선수명", "등급", "기수"]).drop_duplicates("선수번호")

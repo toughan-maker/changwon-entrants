@@ -6,7 +6,7 @@ from datetime import date
 
 import streamlit as st
 
-from common import auth, db, player_admin as A
+from common import auth, db, player_admin as A, site_kcycle
 
 STATE = "manage_player"
 SECTIONS = ["기본", "기록·등급", "학력·경력", "능력치", "친분 선수"]
@@ -86,6 +86,57 @@ def _retire_setup(retire_col: bool):
         st.code(A.ADD_RETIRE_SQL + ";", language="sql")
 
 
+def _retire_sync(retire_col: bool):
+    """KCYCLE 선수조회(현역/은퇴 명단)를 보고 은퇴 선수의 retire_yn 을 y 로"""
+    with st.expander("🔄 KCYCLE 은퇴 명단 반영", expanded=bool(_st().get("sync"))):
+        if not retire_col:
+            st.info("은퇴여부(retire_yn) 열을 먼저 추가해야 쓸 수 있습니다.")
+            return
+        st.caption("kcycle.or.kr 선수조회의 현역·은퇴 명단을 가져와 선수번호(reg_code)로 비교합니다. "
+                   "확인 버튼을 누르기 전에는 DB를 바꾸지 않습니다.")
+        if st.button("명단 가져와서 비교", key="sync_fetch"):
+            try:
+                with st.spinner("KCYCLE 명단을 가져오는 중…"):
+                    retired, active = site_kcycle.racer_list(True), site_kcycle.racer_list(False)
+                if retired.empty or active.empty:
+                    st.error("KCYCLE 명단을 읽지 못했습니다. 사이트 구조가 바뀌었을 수 있습니다.")
+                    return
+                _st()["sync"] = A.retire_plan(retired, active)
+            except Exception as e:  # noqa: BLE001
+                st.error(f"비교 실패: {db.explain_error(e)}\n\n{e}")
+                return
+        plan = _st().get("sync")
+        if not plan:
+            return
+        st.write(" · ".join(f"{k} {v}명" for k, v in plan["counts"].items()))
+        to_y = plan["to_y"]
+        if to_y.empty:
+            st.success("새로 은퇴로 바꿀 선수가 없습니다.")
+        else:
+            st.markdown(f"**은퇴(y)로 바꿀 선수 {len(to_y)}명**")
+            st.dataframe(to_y[["선수번호", "선수명", "기수", "KCYCLE 이름"]], hide_index=True, width="stretch",
+                         height=min(400, 38 + 35 * len(to_y)))
+            if st.button(f"✅ {len(to_y)}명 은퇴로 변경", type="primary", key="sync_apply"):
+                try:
+                    n = A.set_retired(to_y["선수번호"].tolist(), "y")
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"변경 실패 (DB는 바뀌지 않았습니다): {db.explain_error(e)}\n\n{e}")
+                    return
+                _st().pop("sync", None)
+                st.session_state[f"{STATE}_msg"] = ("ok", f"✅ {n}명을 은퇴(y)로 바꿨습니다.")
+                st.rerun()
+        for key, title, note in [
+            ("back", "DB는 은퇴인데 KCYCLE에서는 현역인 선수", "자동으로 바꾸지 않습니다. 필요하면 상세정보에서 직접 고치세요."),
+            ("name_diff", "선수번호는 같은데 이름 표기가 다른 선수", "참고용입니다."),
+            ("unknown", "KCYCLE 명단 어디에도 없는 선수번호", "선수번호(reg_code)가 비었거나 다르게 들어간 경우입니다."),
+        ]:
+            df = plan[key]
+            if not df.empty:
+                with st.popover(f"{title} {len(df)}명"):
+                    st.caption(note)
+                    st.dataframe(df, hide_index=True, width="stretch")
+
+
 def render():
     st.title("🏃 선수정보 관리")
     if not auth.is_admin():          # 메뉴에서 숨겨도 주소로 직접 들어오는 경우 대비
@@ -110,6 +161,7 @@ def render():
     if msg:
         (st.success if msg[0] == "ok" else st.error)(msg[1])
     _retire_setup(retire_col)
+    _retire_sync(retire_col)
 
     # ── 선수조회
     with st.form("player_search"):

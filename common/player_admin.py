@@ -253,3 +253,49 @@ def delete(name: str) -> int:
             conn.rollback()
             raise
     return int(ni)
+
+
+# ───────────────────────── KCYCLE 은퇴 명단 반영 ─────────────────────────
+def retire_plan(retired: pd.DataFrame, active: pd.DataFrame) -> dict:
+    """KCYCLE 명단과 player_info 를 선수번호(reg_code)로 비교
+    → {'to_y': 은퇴로 바꿀 선수, 'back': DB는 은퇴인데 KCYCLE 현역, 'unknown': 두 명단 어디에도 없는 선수,
+       'name_diff': 선수번호는 같은데 이름 표기가 다른 선수, 'counts': {...}}"""
+    _, rows = db.query(f"SELECT reg_code, playerName, kisu, ISNULL(retire_yn, 'n') FROM {INFO}")
+    df = pd.DataFrame([(str(r[0]).strip(), str(r[1]).rstrip(), r[2], str(r[3]).strip().lower()) for r in rows],
+                      columns=["선수번호", "선수명", "기수", "현재"])
+    rmap = retired.set_index("선수번호")["선수명"].to_dict()
+    amap = active.set_index("선수번호")["선수명"].to_dict()
+    in_r, in_a = df["선수번호"].isin(rmap), df["선수번호"].isin(amap)
+    to_y = df[in_r & (df["현재"] != "y")].copy()
+    to_y["KCYCLE 이름"] = to_y["선수번호"].map(rmap)
+    back = df[in_a & (df["현재"] == "y")].copy()
+    back["KCYCLE 이름"] = back["선수번호"].map(amap)
+    unknown = df[~in_r & ~in_a].copy()
+    both = df[in_r | in_a].copy()
+    both["KCYCLE 이름"] = both["선수번호"].map(lambda x: rmap.get(x) or amap.get(x))
+    norm = lambda s: "".join(str(s).split())                       # 공백 차이(외자 표기)는 같은 이름으로
+    name_diff = both[both["선수명"].map(norm) != both["KCYCLE 이름"].map(norm)]
+    return {"to_y": to_y.reset_index(drop=True), "back": back.reset_index(drop=True),
+            "unknown": unknown.reset_index(drop=True), "name_diff": name_diff.reset_index(drop=True),
+            "counts": {"DB 선수": len(df), "KCYCLE 은퇴": len(retired), "KCYCLE 현역": len(active),
+                       "이미 은퇴(y)": int((in_r & (df["현재"] == "y")).sum())}}
+
+
+def set_retired(reg_codes: list[str], flag: str = "y") -> int:
+    """선수번호 목록의 retire_yn 을 flag('y'/'n') 로 → 바꾼 행 수 (한 트랜잭션)"""
+    if flag not in ("y", "n") or not reg_codes:
+        return 0
+    n = 0
+    with db.connect() as conn:
+        cur = conn.cursor()
+        try:
+            for i in range(0, len(reg_codes), 200):                # 한 번에 200명씩
+                chunk = reg_codes[i:i + 200]
+                cur.execute(f"UPDATE {INFO} SET retire_yn = %s WHERE reg_code IN ({', '.join(['%s'] * len(chunk))})",
+                            (flag, *chunk))
+                n += cur.rowcount if (cur.rowcount or 0) >= 0 else len(chunk)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+    return n

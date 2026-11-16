@@ -40,20 +40,23 @@ HEADERS = {
 
 
 # ───────────────────────── 요청 ─────────────────────────
-def _get(url: str, params: dict | None = None) -> requests.Response:
+def _get(url: str, params: dict | None = None, data: dict | None = None) -> requests.Response:
+    """data 가 있으면 POST, 없으면 GET"""
     # Referer 는 요청하는 사이트 주소로 (창원·광명·부산 사이트 공용)
     origin = re.match(r"https?://[^/]+", url)
     headers = {**HEADERS, "Referer": (origin.group(0) if origin else BASE) + "/"}
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=30,
-                            verify=tls_fix.bundle_for(url) if _needs_bundle(url) else True)
+        resp = requests.request("POST" if data is not None else "GET", url, params=params, data=data,
+                                headers=headers, timeout=30,
+                                verify=tls_fix.bundle_for(url) if _needs_bundle(url) else True)
     except requests.exceptions.SSLError as e:
         # 서버가 중간 인증서를 빠뜨린 경우(예: 스포원) → 받아와서 다시 정상 검증
         bundle = tls_fix.bundle_for(url) if tls_fix.is_cert_error(e) else None
         if not bundle:
             raise
         _BUNDLE_HOSTS.add(_host(url))
-        resp = requests.get(url, params=params, headers=headers, timeout=30, verify=bundle)
+        resp = requests.request("POST" if data is not None else "GET", url, params=params, data=data,
+                                headers=headers, timeout=30, verify=bundle)
     resp.raise_for_status()
     return resp
 
@@ -75,6 +78,15 @@ def fetch_html(url: str) -> str:
     """페이지 HTML. 캐시에는 원본 HTML만 저장하고 파싱은 매번 새로 실행합니다.
     (파싱 결과까지 캐시하면 코드를 고친 뒤에도 예전 결과가 10분간 나올 수 있음)"""
     resp = _get(url)
+    if "charset" not in resp.headers.get("Content-Type", "").lower():
+        resp.encoding = resp.apparent_encoding or "utf-8"
+    return resp.text
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def post_html(url: str, data: tuple) -> str:
+    """POST 로 받는 페이지 HTML (data 는 캐시 키가 되도록 (이름, 값) 튜플)"""
+    resp = _get(url, data=dict(data))
     if "charset" not in resp.headers.get("Content-Type", "").lower():
         resp.encoding = resp.apparent_encoding or "utf-8"
     return resp.text
